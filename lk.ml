@@ -320,7 +320,7 @@ let rec p_lx x = "x" ^ string_of_int x
 
 let rec p_lc : lc -> string = function
   | LVar x -> p_lx x
-  | Lam xe -> let x = fresh () in cat ["λ "; p_lx x; ". "; p_lc (xe x)]
+  | Lam xe -> let x = fresh () in cat ["(λ "; p_lx x; ". "; p_lc (xe x); ")"]
   | App (e1, e2) -> cat ["("; p_lc e1; " "; p_lc e2; ")"]
   | LTrivial -> "★"
   | LAbsurd e -> cat ["case "; p_lc e; " of end"]
@@ -338,4 +338,27 @@ let rec p_lc : lc -> string = function
     let y = fresh () in
     cat ["let ("; p_lx x; ", "; p_lx y; ") = "; p_lc e; " in "; p_lc (xye x y)]
 
+(* Tests *)
 
+let () = print_endline (p_lc (lam (fun x -> x $ x)))
+
+let (dne_l, dne_lx, dne_lk) =
+  let x = Var (fresh ()) in
+  let k = Covar (fresh ()) in
+  (ToCo (x, fun j -> OfCo (j, fun y -> Axiom (k, y))), x, k)
+
+let () = print_endline (p_exp dne_l)
+let () = print_endline (p_lc (c_exp dne_l))
+
+let dne_r =
+  let x = Var (fresh ()) in
+  let k = Covar (fresh ()) in
+  OfCo (k, fun y -> ToCo (y, fun j -> Axiom (j, x)))
+
+let () = print_endline (p_exp dne_r)
+let () = print_endline (p_lc (c_exp dne_r))
+
+(* x : ¬ ¬ 1 ⊢ let x -> j in let y <- j in k[y] ⊣ k : 1 *)
+let res = check (add dne_lx (Neg (Neg Unit)) empty) dne_l (add dne_lk Unit empty)
+
+let res = check (add dne_lx (Neg (Neg Unit)) empty) (Axiom (dne_lk, dne_lx)) (add dne_lk Unit empty)
