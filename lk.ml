@@ -216,34 +216,55 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
 (* Conversion to lambda calculus *)
 
 type lc
-  = LVar of var
-  | Lam of (var -> lc)
+  = LVar of int
+  | Lam of (int -> lc)
   | App of lc * lc
+  | LTrivial
+  | LAbsurd of lc
+  | In1 of lc
+  | In2 of lc
+  | LCase of lc * (int -> lc) * (int -> lc)
+  | LPair of lc * lc
+  | LUnpair of lc * (int -> int -> lc)
 
-(*
-Conversion to LC
+let ( $ ) e1 e2 = App (e1, e2)
+let lam f = Lam (fun x -> f (LVar x))
+let xlam f = Lam (fun x -> f (Var x))
+let klam f = Lam (fun x -> f (Covar x))
 
-  [[ _ ]] : term → lc_term such that
+let c_x (Var x) = LVar x
+let c_k (Covar x) = LVar x
 
-    .., x : σ ⊢ e ⊣ k : τ, .. →
-    ∀ R. .., x : [[σ]]R, .., k : [[τ]]R → R ⊢ [[e]] : R where
+let rec c_exp : exp -> lc = function
+  (* [[ [k]x ]] = k x *)
+  | Axiom (k, x) -> c_k k $ c_x x
+  (* [[ let x = κ k. e₁ in e₂ ]] = (λ k. [[e₁]]) (λ x. [[e₂]]) *)
+  | Let (_, ke1, xe2) -> klam (fun k -> c_exp (ke1 k)) $ xlam (fun x -> c_exp (xe2 x))
+  (* [[ [k]★ ]] = k ★ *)
+  | Trivial k -> c_k k $ LTrivial
+  (* [[ absurd x ]] = case x of end *)
+  | Absurd x -> LAbsurd (c_x x)
+  (* [[ pair k (κ h. e₁) (κ j. e₂) ]] = (λ h. [[e₁]]) (λ v. (λ j. [[e₂]]) (λ w. k (v, w))) *)
+  | Pair (k, he1, je2) ->
+    klam (fun h -> c_exp (he1 h)) $ lam (fun v -> 
+    klam (fun j -> c_exp (je2 j)) $ lam (fun w -> 
+    LPair (v, w)))
+  (* [[ let (y, z) = x in e ]] = let (y, z) = x in [[e]] *)
+  | Unpair (x, yze) -> LUnpair (c_x x, fun y z -> c_exp (yze (Var y) (Var z)))
+  (* [[ let [h, j] = k in e ]] = (λ h j. [[e]]) (λ v. k (ι₁ v)) (λ w. k (ι₂ w)) *)
+  | Uncase (k, hje) ->
+    (klam (fun h -> klam (fun j -> c_exp (hje h j)))
+      $ lam (fun v -> c_k k $ In1 v))
+      $ lam (fun w -> c_k k $ In2 w)
+  (* [[ case x (λ y. e₁) (λ z. e₂) ]] = case x of ι₁ y -> [[e₁]] | ι₂ z -> [[e₂]] end *)
+  | Case (x, ye1, ze2) -> LCase (c_x x, (fun y -> c_exp (ye1 (Var y))), fun z -> c_exp (ze2 (Var z)))
+  (* [[ [k](λ x. κ j. e) ]] = k (λ x j. [[e]]) *)
+  | Fun (k, xje) -> c_k k $ xlam (fun x -> klam (fun j -> c_exp (xje x j)))
+  (* [[ let y = x (κ k. e₁) in e₂ ]] = (λ k. e₁) (λ v. (λ y. e₂) (x v)) *)
+  | LetApp (x, ke1, ye2) ->
+    klam (fun k -> c_exp (ke1 k)) $ lam (fun v -> xlam (fun y -> c_exp (ye2 y)) $ (c_x x $ v))
+  (* [[ let x -> k in e ]] = (λ k. [[e]]) x *)
+  | ToCo (x, ke) -> klam (fun k -> c_exp (ke k)) $ c_x x
+  (* [[ let x <- k in e ]] = k (λ x. [[e]]) *)
+  | OfCo (k, xe) -> c_k k $ xlam (fun x -> c_exp (xe x))
 
-          [[ 0 ]] R = 0
-          [[ 1 ]] R = 1
-      [[ σ + τ ]] R = [[ σ ]] R + [[ τ ]] R
-      [[ σ × τ ]] R = [[ σ ]] R × [[ τ ]] R
-      [[ σ → τ ]] R = [[ σ ]] R → ([[ τ ]] R → R) → R
-        [[ ¬ τ ]] R = [[ τ ]] R → R
-
-                        [[ [k]x ]] = k x
-       [[ let x = κ k. e₁ in e₂ ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
-                        [[ [k]★ ]] = k ★
-  [[ pair k (κ h. e₁) (κ j. e₂) ]] = (λ h. [[e₁]]) (λ v. (λ j. [[e₂]]) (λ w. k (v, w)))
-         [[ let (y, z) = x in e ]] = let (y, z) = x in [[e]]
-         [[ let [h, j] = k in e ]] = (λ h j. [[e]]) (λ v. k (ι₁ v)) (λ w. k (ι₂ w))
-  [[ case x (λ y. e₁) (λ z. e₂) ]] = case x of ι₁ y -> [[e₁]] | ι₂ z -> [[e₂]] end
-            [[ [k](λ x. κ j. e) ]] = k (λ x j. [[e]])
-   [[ let y = x (κ k. e₁) in e₂ ]] = (λ k. e₁) (λ v. (λ y. e₂) (x v))
-             [[ let x <- k in e ]] = k (λ x. [[e]])
-             [[ let x -> k in e ]] = (λ k. [[e]]) x
-*)

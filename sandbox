@@ -96,13 +96,13 @@ Typing judgment Γ ⊢ e ⊣ Δ
 
   Negation
 
-            Γ, x : τ ⊢ e ⊣ Δ
-    ————————————————————————————————
-    Γ ⊢ let x <- k in e ⊣ k : ¬ τ, Δ
-
             Γ ⊢ e ⊣ k : τ, Δ
     ————————————————————————————————
     Γ, x : ¬ τ ⊢ let x -> k in e ⊣ Δ
+
+            Γ, x : τ ⊢ e ⊣ Δ
+    ————————————————————————————————
+    Γ ⊢ let x <- k in e ⊣ k : ¬ τ, Δ
 
 Conversion to LC
 
@@ -127,5 +127,5 @@ Conversion to LC
   [[ case x (λ y. e₁) (λ z. e₂) ]] = case x of ι₁ y -> [[e₁]] | ι₂ z -> [[e₂]] end
             [[ [k](λ x. κ j. e) ]] = k (λ x j. [[e]])
    [[ let y = x (κ k. e₁) in e₂ ]] = (λ k. e₁) (λ v. (λ y. e₂) (x v))
-             [[ let x <- k in e ]] = k (λ x. [[e]])
              [[ let x -> k in e ]] = (λ k. [[e]]) x
+             [[ let x <- k in e ]] = k (λ x. [[e]])
