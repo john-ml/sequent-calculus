@@ -108,9 +108,10 @@ let as_neg m =
 
 let fresh =
   let x = ref (-1) in
-  fun () ->
+  let fresh () =
     x := !x + 1;
     !x
+  in fresh
 
 (* Γ ⊢ e ⊣ Δ *)
 let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
@@ -264,4 +265,77 @@ let rec c_exp : exp -> lc = function
   | ToCo (x, ke) -> klam (fun k -> c_exp (ke k)) $ c_x x
   (* [[ let x <- k in e ]] = k (λ x. [[e]]) *)
   | OfCo (k, xe) -> c_k k $ xlam (fun x -> c_exp (xe x))
+
+(* Pretty-printing for sequent calculus terms *)
+
+let cat = String.concat ""
+
+let p_x (Var x) = "x" ^ string_of_int x
+let p_k (Covar k) = "k" ^ string_of_int k
+
+let rec p_ty : ty -> string = function
+  | Void -> "0"
+  | Unit -> "1"
+  | Sum (s, t) -> cat ["("; p_ty s; " + "; p_ty t; ")"]
+  | Prod (s, t) -> cat ["("; p_ty s; " × "; p_ty t; ")"]
+  | Arr (s, t) -> cat ["("; p_ty s; " → "; p_ty t; ")"]
+  | Neg t -> cat ["¬"; p_ty t]
+
+let rec p_exp : exp -> string = function
+  | Axiom (k, x) -> cat ["["; p_k k; "]"; p_x x]
+  | Let (t, ke1, xe2) ->
+    let x = Var (fresh ()) in
+    cat ["let "; p_x x; " : "; p_ty t; " = "; p_kappa ke1; " in "; p_exp (xe2 x)]
+  | Absurd x -> cat ["absurd "; p_x x]
+  | Trivial k -> cat ["["; p_k k; "]★"]
+  | Pair (k, he1, je2) -> cat ["pair "; p_k k; " "; p_kappa he1; " "; p_kappa je2]
+  | Unpair (x, yze) ->
+    let y = Var (fresh ()) in
+    let z = Var (fresh ()) in
+    cat ["let ("; p_x y; ", "; p_x z; ") = "; p_x x; " in "; p_exp (yze y z)]
+  | Uncase (k, hje) ->
+    let h = Covar (fresh ()) in
+    let j = Covar (fresh ()) in
+    cat ["let ["; p_k h; ", "; p_k j; "] = "; p_k k; " in "; p_exp (hje h j)]
+  | Case (x, ye1, ze2) -> cat ["case "; p_x x; " "; p_lambda ye1; " "; p_lambda ze2]
+  | Fun (k, xje) ->
+    let x = Var (fresh ()) in
+    let j = Covar (fresh ()) in
+    cat ["["; p_k k; "](λ "; p_x x; ". κ "; p_k j; ". "; p_exp (xje x j)]
+  | LetApp (x, ke1, ye2) ->
+    let y = Var (fresh ()) in
+    cat ["let "; p_x y; " = "; p_x x; " "; p_kappa ke1; " in "; p_exp (ye2 y)]
+  | ToCo (x, ke) ->
+    let k = Covar (fresh ()) in
+    cat ["let "; p_x x; " -> "; p_k k; " in "; p_exp (ke k)]
+  | OfCo (k, xe) ->
+    let x = Var (fresh ()) in
+    cat ["let "; p_x x; " <- "; p_k k; " in "; p_exp (xe x)]
+and p_kappa ke = let k = Covar (fresh ()) in cat ["(κ "; p_k k; ". "; p_exp (ke k)]
+and p_lambda xe = let x = Var (fresh ()) in cat ["(λ "; p_x x; ". "; p_exp (xe x)]
+
+(* Pretty-printing for lambda terms *)
+
+let rec p_lx x = "x" ^ string_of_int x
+
+let rec p_lc : lc -> string = function
+  | LVar x -> p_lx x
+  | Lam xe -> let x = fresh () in cat ["λ "; p_lx x; ". "; p_lc (xe x)]
+  | App (e1, e2) -> cat ["("; p_lc e1; " "; p_lc e2; ")"]
+  | LTrivial -> "★"
+  | LAbsurd e -> cat ["case "; p_lc e; " of end"]
+  | In1 e -> cat ["(ι₁ "; p_lc e; ")"]
+  | In2 e -> cat ["(ι₂ "; p_lc e; ")"]
+  | LCase (e, xe1, ye2) ->
+    let x = fresh () in
+    let y = fresh () in
+    cat ["case "; p_lc e;
+      " of ι₁ "; p_lx x; " -> "; p_lc (xe1 x);
+      " | ι₂ "; p_lx y; " -> "; p_lc (ye2 y); " end"]
+  | LPair (e1, e2) -> cat ["("; p_lc e1; ", "; p_lc e2; ")"]
+  | LUnpair (e, xye) ->
+    let x = fresh () in
+    let y = fresh () in
+    cat ["let ("; p_lx x; ", "; p_lx y; ") = "; p_lc e; " in "; p_lc (xye x y)]
+
 
