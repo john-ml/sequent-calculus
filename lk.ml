@@ -65,8 +65,8 @@ type exp
   (* Functions
      | [k](λ x. κ j. e)
      | let y = x (κ k. e₁) in e₂ *)
-  | Lam of covar * (var -> covar -> exp)
-  | App of var * (covar -> exp) * (var -> exp)
+  | Fun of covar * (var -> covar -> exp)
+  | LetApp of var * (covar -> exp) * (var -> exp)
   (* Negation
      | let x -> k in e
      | let x <- k in e *)
@@ -184,7 +184,7 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
   (*       Γ, x : σ ⊢ e ⊣ j : τ, Δ
      ———————————————————————————————————
      Γ ⊢ [k](λ x. κ j. e) ⊣ k : σ → τ, Δ *)
-  | Lam (k, xje) ->
+  | Fun (k, xje) ->
     let* (s, t) = as_arr (find_covar k covars) in
     let x = Var (fresh ()) in
     let j = Covar (fresh ()) in
@@ -192,7 +192,7 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
   (*    Γ ⊢ e₁ ⊣ k : σ, Δ    Γ, y : τ ⊢ e₂ ⊣ Δ
      ————————————————————————————————————————————
      Γ, x : σ → τ ⊢ let y = x (κ k. e₁) in e₂ ⊣ Δ *)
-  | App (x, ke1, ye2) ->
+  | LetApp (x, ke1, ye2) ->
     let* (s, t) = as_arr (find_var x vars) in
     let k = Covar (fresh ()) in
     let y = Var (fresh ()) in
@@ -213,7 +213,14 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
     let x = Var (fresh ()) in
     check (add x t vars) (xe x) covars
 
-  (*
+(* Conversion to lambda calculus *)
+
+type lc
+  = LVar of var
+  | Lam of (var -> lc)
+  | App of lc * lc
+
+(*
 Conversion to LC
 
   [[ _ ]] : term → lc_term such that
