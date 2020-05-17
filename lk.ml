@@ -23,19 +23,10 @@ type ty
 (* Typing contexts: Γ, Δ ∷= · | Γ, x : τ *)
 
 type var = Var of int
-
 type covar = Covar of int
 
-let fresh =
-  let x = ref (-1) in
-  fun () ->
-    x := !x + 1;
-    !x
-
 type 'a ctx = 'a -> (ty, [`NotFound]) result
-
 let empty : 'a ctx = fun _ -> Err `NotFound
-
 let add (x : 'a) (t : ty) (c : 'a ctx) : 'a ctx =
   fun x' -> if x = x' then Ok t else c x'
 
@@ -114,6 +105,12 @@ let as_neg m =
   match ty with
   | Neg t -> Ok t
   | _ -> Err (`ExGot ("negation", ty))
+
+let fresh =
+  let x = ref (-1) in
+  fun () ->
+    x := !x + 1;
+    !x
 
 (* Γ ⊢ e ⊣ Δ *)
 let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
