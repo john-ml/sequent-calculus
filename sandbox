@@ -131,42 +131,68 @@ Conversion to LC
              [[ let x <- k in e ]] = k (λ x. [[e]])
 
 Negation
+  What do (let x -> k in e) and (let x <- k in e) do? Rough guesses:
+    let x -> k in e:
+      x : ¬ τ is a captured continuation
+      k : τ is a way to invoke the captured continuation in e
+    let x <- k in e:
+      k : ¬ τ is a suspended computation of τ
+      x : τ is the result of resuming k
   Analogues for
     Γ ⊢ ¬ τ, Δ    Γ, ¬ τ ⊢ Δ
     ——————————    ——————————
      Γ, τ ⊢ Δ      Γ ⊢ τ, Δ
-  as derived rules
-                                  ————————————————————
-                                  x : τ ⊢ [k]x ⊣ k : τ
-                          —————————————————————————————————————
-    Γ ⊢ _ ⊣ j : ¬ τ, Δ    x : τ, y : ¬ τ ⊢ let y -> k in [k]x ⊣
-    ———————————————————————————————————————————————————————————
-     Γ, x : τ ⊢ let y : ¬ τ = κ j. _ in let y -> k in [k]x ⊣ Δ
-  and
-           ————————————————————
-           j : τ ⊢ [k]y ⊣ k : τ
-    —————————————————————————————————————
-    ⊢ let y <- j in [k]y ⊣ j : ¬ τ, k : τ    Γ, x : ¬ τ ⊢ _ ⊣ Δ
-    ———————————————————————————————————————————————————————————
-    Γ ⊢ let x : ¬ τ = (κ j. let y <- j in [k]y) in _ ⊣ k : τ, Δ
-  What control operators do these correspond to?
+  as derived rules:
+                                    ————————————————————
+                                    x : τ ⊢ [k]x ⊣ k : τ
+                            —————————————————————————————————————
+      Γ ⊢ _ ⊣ j : ¬ τ, Δ    x : τ, y : ¬ τ ⊢ let y -> k in [k]x ⊣
+      ———————————————————————————————————————————————————————————
+       Γ, x : τ ⊢ let y : ¬ τ = κ j. _ in let y -> k in [k]x ⊣ Δ
+    and
+             ————————————————————
+             j : τ ⊢ [k]y ⊣ k : τ
+      —————————————————————————————————————
+      ⊢ let y <- j in [k]y ⊣ j : ¬ τ, k : τ    Γ, x : ¬ τ ⊢ _ ⊣ Δ
+      ———————————————————————————————————————————————————————————
+      Γ ⊢ let x : ¬ τ = (κ j. let y <- j in [k]y) in _ ⊣ k : τ, Δ
+  What control operators do these derived rules correspond to?
     [[ let y : ¬ τ = κ j. _ in let y -> k in [k]x ]]
       = (λ j. [[_]]) (λ y. [[ let y -> k in [k]x ]]
       = (λ j. [[_]]) (λ y. (λ k. k x) y)
       = (λ j. [[_]]) (λ y. y x)
-      The value x : τ is replaced by a suspension(?) j := (λ k. k x)
+      The value (x : τ) gets rewritten in CPS as (j := λ y. y x).
+      Not very useful...
     [[ let x : ¬ τ = (κ j. let y <- j in [k]y) in _ ]]
       = (λ j. [[ let y <- j in [k]y ]]) (λ x. [[_]])
       = (λ j. j (λ y. k y)) (λ x. [[_]])
       = (λ j. j k) (λ x. [[_]])
       = let x = k in [[_]]
-      The value x : ¬ τ is the current continuation k : τ
-  let x -> k in e:
-    x : ¬ τ is a captured continuation
-    k : τ is a way to invoke the captured continuation in e
-  let x <- k in e:
-    k : ¬ τ is a suspended computation of τ
-    x : τ is the result of resuming k
+      The continuation k : τ is captured in x : ¬ τ.
+  What does double negation do?
+    Introduction: [[ let y : ¬ ¬ τ = (κ k. let z <- k in let z -> j in [j]x) in _ ]]
+      = (λ k. [[ let z <- k in let z -> j in [j]x ]]) (λ y. [[_]])
+      = (λ k. k (λ z. [[ let z -> j in [j]x ]])) (λ y. [[_]])
+      = (λ k. k (λ z. (λ j. j x) z)) (λ y. [[_]])
+      = (λ k. k (λ z. z x)) (λ y. [[_]])
+      = (λ y. [[_]]) (λ z. z x)
+      = let y = λ z. z x in [[_]]
+      Computation of x is suspended in (y : ¬ ¬ τ).
+      In this case nothing interesting happens because (x : τ) is already a value.
+      If [j]x were replaced by an arbitrary expression e...
+        [[ let y : ¬ ¬ τ = (κ k. let z <- k in let z -> j in e) in _ ]]
+          = (λ k. [[ let z <- k in let z -> j in e ]]) (λ y. [[_]])
+          = (λ k. k (λ z. [[ let z -> j in e ]])) (λ y. [[_]])
+          = (λ k. k (λ z. (λ j. [[e]]) z)) (λ y. [[_]])
+          = (λ k. k (λ j. [[e]])) (λ y. [[_]])
+          = (λ y. [[_]]) (λ j. [[e]])
+          = let y = λ j. [[e]] in [[_]]
+      The whole computation [[e]] is suspended (assuming CBV) because it's under a binder (j).
+    Elimination: [[ let (x : ¬ ¬ τ) -> k in let y <- k in _ ]]
+      = (λ k. [[ let y <- k in _ ]]) x
+      = (λ k. k (λ y. [[_]])) x
+      = x (λ y. [[_]])
+      Resume a suspension (x : ¬ ¬ τ)
 
 Cocurrying?
   Currying: p → q → r ≡ p × q → r
@@ -177,4 +203,6 @@ Cocurrying?
       ≡ p × ¬ q × ¬ r
       ≡ p × ¬ (q + r)
       ≡ p ← q + r
-  So p → .. → q → 1 ← r ← .. ← s ≡ p × .. × q → r + .. + s
+  So p → .. → q → 1 ← r ← .. ← s
+   ≡ p × .. × q → r + .. + s
+   ≡ p × .. × q × ¬ r × .. × ¬ s
