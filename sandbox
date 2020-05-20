@@ -129,3 +129,52 @@ Conversion to LC
    [[ let y = x (κ k. e₁) in e₂ ]] = (λ k. e₁) (λ v. (λ y. e₂) (x v))
              [[ let x -> k in e ]] = (λ k. [[e]]) x
              [[ let x <- k in e ]] = k (λ x. [[e]])
+
+Negation
+  Analogues for
+    Γ ⊢ ¬ τ, Δ    Γ, ¬ τ ⊢ Δ
+    ——————————    ——————————
+     Γ, τ ⊢ Δ      Γ ⊢ τ, Δ
+  as derived rules
+                                  ————————————————————
+                                  x : τ ⊢ [k]x ⊣ k : τ
+                          —————————————————————————————————————
+    Γ ⊢ _ ⊣ j : ¬ τ, Δ    x : τ, y : ¬ τ ⊢ let y -> k in [k]x ⊣
+    ———————————————————————————————————————————————————————————
+     Γ, x : τ ⊢ let y : ¬ τ = κ j. _ in let y -> k in [k]x ⊣ Δ
+  and
+           ————————————————————
+           j : τ ⊢ [k]y ⊣ k : τ
+    —————————————————————————————————————
+    ⊢ let y <- j in [k]y ⊣ j : ¬ τ, k : τ    Γ, x : ¬ τ ⊢ _ ⊣ Δ
+    ———————————————————————————————————————————————————————————
+    Γ ⊢ let x : ¬ τ = (κ j. let y <- j in [k]y) in _ ⊣ k : τ, Δ
+  What control operators do these correspond to?
+    [[ let y : ¬ τ = κ j. _ in let y -> k in [k]x ]]
+      = (λ j. [[_]]) (λ y. [[ let y -> k in [k]x ]]
+      = (λ j. [[_]]) (λ y. (λ k. k x) y)
+      = (λ j. [[_]]) (λ y. y x)
+      The value x : τ is replaced by a suspension(?) j := (λ k. k x)
+    [[ let x : ¬ τ = (κ j. let y <- j in [k]y) in _ ]]
+      = (λ j. [[ let y <- j in [k]y ]]) (λ x. [[_]])
+      = (λ j. j (λ y. k y)) (λ x. [[_]])
+      = (λ j. j k) (λ x. [[_]])
+      = let x = k in [[_]]
+      The value x : ¬ τ is the current continuation k : τ
+  let x -> k in e:
+    x : ¬ τ is a captured continuation
+    k : τ is a way to invoke the captured continuation in e
+  let x <- k in e:
+    k : ¬ τ is a suspended computation of τ
+    x : τ is the result of resuming k
+
+Cocurrying?
+  Currying: p → q → r ≡ p × q → r
+  Want infixl (←) s.t. p ← q ← r ≡ p ← q + r
+  p ← q := ¬ (p → q) ≡ p × ¬ q works:
+    p ← q ← r
+      ≡ ¬ (¬ (p → q) → r)
+      ≡ p × ¬ q × ¬ r
+      ≡ p × ¬ (q + r)
+      ≡ p ← q + r
+  So p → .. → q → 1 ← r ← .. ← s ≡ p × .. × q → r + .. + s
