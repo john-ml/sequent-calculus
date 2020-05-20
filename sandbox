@@ -206,4 +206,3 @@ Cocurrying?
       ≡ p ← q + r
   So p → .. → q → 1 ← r ← .. ← s
    ≡ p × .. × q → r + .. + s
-   ≡ p × .. × q × ¬ r × .. × ¬ s
