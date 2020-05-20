@@ -161,6 +161,7 @@ Negation
       = (λ j. [[_]]) (λ y. [[ let y -> k in [k]x ]]
       = (λ j. [[_]]) (λ y. (λ k. k x) y)
       = (λ j. [[_]]) (λ y. y x)
+      = let j = λ y. y x in [[_]]
       The value (x : τ) gets rewritten in CPS as (j := λ y. y x).
       Not very useful...
     [[ let x : ¬ τ = (κ j. let y <- j in [k]y) in _ ]]
@@ -187,7 +188,7 @@ Negation
           = (λ k. k (λ j. [[e]])) (λ y. [[_]])
           = (λ y. [[_]]) (λ j. [[e]])
           = let y = λ j. [[e]] in [[_]]
-      The whole computation [[e]] is suspended (assuming CBV) because it's under a binder (j).
+      The whole computation [[e]] is suspended (assuming CBV).
     Elimination: [[ let (x : ¬ ¬ τ) -> k in let y <- k in _ ]]
       = (λ k. [[ let y <- k in _ ]]) x
       = (λ k. k (λ y. [[_]])) x
