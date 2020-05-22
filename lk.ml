@@ -83,6 +83,11 @@ type exp
      | case x (κ k. e₁) .. of (λ y. e₂) .. end *)
   | LK of covar * var list * covar list * exp
   | LKApp of var * (covar * exp) list * (var * exp) list
+  (* Recursive types
+     | [k](κ j. roll e)
+     | let y = unroll x in e *)
+  | Roll of covar * covar * exp
+  | Unroll of var * var * exp
 
 (* Typing *)
 
@@ -125,6 +130,12 @@ let as_vdash m =
   match ty with
   | Vdash (ss, ts) -> Ok (ss, ts)
   | _ -> Err (`ExGot ("_ ⊢ _", ty))
+
+let as_mu m =
+  let* ty = m in
+  match ty with
+  | Mu (a, t) -> Ok (a, t)
+  | _ -> Err (`ExGot ("μ _. _", ty))
 
 let fresh =
   let x = ref (-1) in
@@ -226,6 +237,18 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
     if length yes <> length ts then Err (`LKAppContArity (yes, ts)) else
     mapM_ (fun ((k, e), s) -> check vars e (extend k s covars)) (combine kes ss) *>
     mapM_ (fun ((y, e), t) -> check (extend y t vars) e covars) (combine yes ts)
+  (*      Γ ⊢ e ⊣ j : τ[μ α. τ/α], Δ
+     ————————————————————————————————————
+     Γ ⊢ [k](κ j. roll e) ⊣ k : μ α. τ, Δ *)
+  | Roll (k, j, e) ->
+    let* (a, t) = as_mu (find_covar k covars) in
+    check vars e (extend j (ty_subst t (Mu (a, t)) a) covars)
+  (*        Γ, y : τ[μ α. τ/α] ⊢ e ⊣ Δ
+     —————————————————————————————————————————
+     Γ, x : μ α. τ ⊢ let y = unroll x in e ⊣ Δ *)
+  | Unroll (y, x, e) ->
+    let* (a, t) = as_mu (find_var x vars) in
+    check (extend y (ty_subst t (Mu (a, t)) a) vars) e covars
 
 (* Conversion to lambda calculus *)
 
@@ -239,6 +262,8 @@ type lc
   | LCase of lc * (string * lc) list
   | LTuple of lc list
   | LUntuple of string list * lc * lc
+  | LRoll of lc
+  | LUnroll of lc
 
 let s_x (Var x) = "x" ^ string_of_int x
 let s_k (Covar k) = "k" ^ string_of_int k
@@ -289,6 +314,10 @@ let rec c_exp : exp -> lc = function
     fold_left (fun e (y, e2) -> e $ xlam y (c_exp e2))
       (fold_left (fun e (k, e1) -> e $ klam k (c_exp e1)) (c_x x) kes)
       yes
+  (* [[ [k](κ j. roll e) ]] = (λ j. [[e]]) (λ v. k (roll v)) *)
+  | Roll (k, j, e) -> klam j (c_exp e) $ vlam (fun v -> c_k k $ LRoll v)
+  (* [[ let y = unroll x in e ]] = (λ y. [[e]]) (unroll x) *)
+  | Unroll (y, x, e) -> xlam y (c_exp e) $ LUnroll (c_x x)
 
 (* Pretty-printing for sequent calculus terms *)
 
@@ -331,6 +360,8 @@ let rec p_exp : exp -> string = function
   | LKApp (x, kes, yes) ->
     cat ["case "; p_x x; " "; unwords_by (fun (k, e) -> paren (p_kappa k e)) kes; " of ";
       unwords_by (fun (y, e) -> p_arm y e) yes; " end"]
+  | Roll (k, j, e) -> cat ["["; p_k k; "](κ "; p_k j; ". roll "; p_exp e; ")"]
+  | Unroll (y, x, e) -> cat ["let "; p_x y; " = unroll "; p_x x; " in "; p_exp e]
 and p_kappa k e = cat ["κ "; p_k k; ". "; p_exp e]
 and p_lambda x e = cat ["λ "; p_x x; ". "; p_exp e]
 and p_arm x e = cat [p_x x; " -> "; p_exp e]
@@ -350,6 +381,8 @@ let rec p_lc : lc -> string = function
   | LTuple es -> cat ["("; commas_by p_lc es; ")"]
   | LUntuple (ys, e1, e2) ->
     cat ["let ("; commas_by (fun y -> y) ys; ") = "; p_lc e1; " in "; p_lc e2]
+  | LRoll e -> cat ["(roll "; p_lc e; ")"]
+  | LUnroll e -> cat ["(unroll "; p_lc e; ")"]
 
 (* Tests *)
 

@@ -149,7 +149,7 @@ Conversion to LC
                [[ [k](λ x .. . κ j .. . e) ]] = k (λ x .. j .. . [[e]])
 [[ case x (κ k. e₁) .. of y -> e₂ | .. end ]] = x (λ k. [[e₁]]) .. (λ y. [[e₂]]) ..
                        [[ [k](κ j. roll e) ]] = (λ j. [[e]]) (λ v. k (roll v))
-                  [[ let y = unroll x in e ]] = let y = unroll x in [[e]]
+                  [[ let y = unroll x in e ]] = (λ y. e) (unroll x)
 
 Negation
   What do (let x -> k in e) and (let x <- k in e) do? Rough guesses:
