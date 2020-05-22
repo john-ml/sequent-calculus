@@ -206,9 +206,9 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
   | OfCo (x, k, e) ->
     let* t = as_neg (find_covar k covars) in
     check (extend x t vars) e covars
-  (*           Γ, x : σ, .. ⊢ e ⊣ j : τ, .., Δ
-    —————————————————————————————————————————————————————
-    Γ ⊢ [k](λ x .. . κ j .. . e) ⊣ k : (σ, .. ⊢ τ, ..), Δ *)
+  (*            Γ, x : σ, .. ⊢ e ⊣ j : τ, .., Δ
+     —————————————————————————————————————————————————————
+     Γ ⊢ [k](λ x .. . κ j .. . e) ⊣ k : (σ, .. ⊢ τ, ..), Δ *)
   | LK (k, xs, js, e) ->
     let* (ss, ts) = as_vdash (find_covar k covars) in
     let open List in
@@ -216,15 +216,15 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
     if length js = length ts then Err (`LKContArity (js, ts)) else
     let extends vs ts vts = fold_right (fun (v, t) vts -> extend v t vts) (combine vs ts) vts in
     check (extends xs ss vars) e (extends js ts covars)
- (*          Γ ⊢ e₁ ⊣ k : σ, Δ    ..    Γ, y : τ ⊢ e₂ ⊣ Δ    ..
-    ————————————————————————————————————————————————————————————————————
-    Γ, x : (σ, .. ⊢ τ, ..) ⊢ case x (κ k. e₁) .. of (λ y. e₂) .. end ⊣ Δ *)
+  (*          Γ ⊢ e₁ ⊣ k : σ, Δ    ..    Γ, y : τ ⊢ e₂ ⊣ Δ    ..
+     ————————————————————————————————————————————————————————————————————
+     Γ, x : (σ, .. ⊢ τ, ..) ⊢ case x (κ k. e₁) .. of (λ y. e₂) .. end ⊣ Δ *)
   | LKApp (x, kes, yes) ->
     let* (ss, ts) = as_vdash (find_var x vars) in
     let open List in
     if length kes = length ss then Err (`LKAppArgArity (kes, ss)) else
     if length yes = length ts then Err (`LKAppContArity (yes, ts)) else
-    let mapM_ f xs = fold_right ( *> ) (map f xs) (Ok ()) in
+    let mapM_ f xs = fold_left (fun m x -> m *> f x) (Ok ()) xs in
     mapM_ (fun ((k, e), s) -> check vars e (extend k s covars)) (combine kes ss) *>
     mapM_ (fun ((y, e), t) -> check (extend y t vars) e covars) (combine yes ts)
 
@@ -296,6 +296,8 @@ let rec c_exp : exp -> lc = function
 (* Pretty-printing for sequent calculus terms *)
 
 let cat = String.concat ""
+let unwords_by f xs = String.concat " " (List.map f xs)
+let commas_by f xs = String.concat ", " (List.map f xs)
 
 let p_x (Var x) = "x" ^ string_of_int x
 let p_k (Covar k) = "k" ^ string_of_int k
@@ -307,10 +309,8 @@ let rec p_ty : ty -> string = function
   | Prod (s, t) -> cat ["("; p_ty s; " × "; p_ty t; ")"]
   | Arr (s, t) -> cat ["("; p_ty s; " → "; p_ty t; ")"]
   | Neg t -> cat ["¬"; p_ty t]
-  | Vdash (ss, ts) ->
-    cat ["("; String.concat ", " (List.map p_ty ss); " ⊢ "; String.concat ", " (List.map p_ty ts); ")"]
+  | Vdash (ss, ts) -> cat ["("; commas_by p_ty ss; " ⊢ "; commas_by p_ty ts; ")"]
 
-let unwords_by f xs = String.concat " " (List.map f xs)
 let rec p_exp : exp -> string = function
   | Axiom (k, x) -> cat ["["; p_k k; "]"; p_x x]
   | Let (x, t, k, e1, e2) ->
