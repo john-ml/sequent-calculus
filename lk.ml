@@ -28,7 +28,7 @@ type covar = Covar of int
 
 type 'a ctx = 'a -> (ty, [`NotFound]) result
 let empty : 'a ctx = fun _ -> Err `NotFound
-let add (x : 'a) (t : ty) (c : 'a ctx) : 'a ctx =
+let extend (x : 'a) (t : ty) (c : 'a ctx) : 'a ctx =
   fun x' -> if x = x' then Ok t else c x'
 
 (* Terms *)
@@ -67,7 +67,8 @@ type exp
   (* Sequents
      | [k](λ x .. . κ j .. . e)
      | case x (κ k. e₁) .. of (λ y. e₂) .. end *)
-  (* | LK of covar * int * (covar list -> exp) * int * (var list -> exp) *)
+  | LK of covar * var list * covar list * exp
+  | LKApp of var * (covar * exp) list * (var * exp) list
 
 (* Typing *)
 
@@ -85,31 +86,37 @@ let as_unit m =
   let* ty = m in
   match ty with
   | Unit -> Ok ()
-  | _ -> Err (`ExGot ("unit", ty))
+  | _ -> Err (`ExGot ("1", ty))
 
 let as_prod m =
   let* ty = m in
   match ty with
   | Prod (s, t) -> Ok (s, t)
-  | _ -> Err (`ExGot ("product", ty))
+  | _ -> Err (`ExGot ("_ × _", ty))
 
 let as_sum m =
   let* ty = m in
   match ty with
   | Sum (s, t) -> Ok (s, t)
-  | _ -> Err (`ExGot ("sum", ty))
+  | _ -> Err (`ExGot ("_ + _", ty))
 
 let as_arr m =
   let* ty = m in
   match ty with
   | Arr (s, t) -> Ok (s, t)
-  | _ -> Err (`ExGot ("function", ty))
+  | _ -> Err (`ExGot ("_ → _", ty))
 
 let as_neg m =
   let* ty = m in
   match ty with
   | Neg t -> Ok t
-  | _ -> Err (`ExGot ("negation", ty))
+  | _ -> Err (`ExGot ("¬ _", ty))
+
+let as_vdash m =
+  let* ty = m in
+  match ty with
+  | Vdash (ss, ts) -> Ok (ss, ts)
+  | _ -> Err (`ExGot ("_ ⊢ _", ty))
 
 let fresh =
   let x = ref (-1) in
@@ -122,7 +129,7 @@ let fresh =
 let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
   match e with
   (* Axiom (context lookup)
-
+       
     ——————————————————————————
     Γ, x : τ ⊢ [k]x ⊣ k : τ, Δ
  
@@ -141,8 +148,8 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
      —————————————————————————————————————— Cut
          Γ ⊢ let x = κ k. e₁ in e₂ ⊣ Δ           *)
   | Let (x, t, k, e1, e2) ->
-    check vars e1 (add k t covars) *>
-    check (add x t vars) e2 covars
+    check vars e1 (extend k t covars) *>
+    check (extend x t vars) e2 covars
   (*
     ——————————————————    ——————————————
     x : 0 ⊢ absurd x ⊣    ⊢ [k]★ ⊣ k : 1 *)
@@ -153,52 +160,73 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
      Γ ⊢ pair k (κ h. e₁) (κ j. e₂) ⊣ k : σ × τ, Δ *)
   | Pair (k, h, e1, j, e2) ->
     let* (s, t) = as_prod (find_covar k covars) in
-    check vars e1 (add h s covars) *>
-    check vars e2 (add j t covars)
+    check vars e1 (extend h s covars) *>
+    check vars e2 (extend j t covars)
   (*        Γ, y : σ, z : τ ⊢ e ⊣ Δ
      ——————————————————————————————————————
      Γ, x : σ × τ ⊢ let (y, z) = x in e ⊣ Δ *)
   | Unpair (y, z, x, e) ->
     let* (s, t) = as_prod (find_var x vars) in
-    check (add y s (add z t vars)) e covars
+    check (extend y s (extend z t vars)) e covars
   (*        Γ ⊢ e ⊣ h : σ, j : τ, Δ
      ——————————————————————————————————————
      Γ ⊢ let [h, j] = k in e ⊣ k : σ + τ, Δ *)
   | Uncase (h, j, k, e) ->
     let* (s, t) = as_sum (find_covar k covars) in
-    check vars e (add h s (add j t covars))
+    check vars e (extend h s (extend j t covars))
   (*  Γ, y : σ ⊢ e₁ ⊣ Δ    Γ, z : τ ⊢ e₂ ⊣ Δ
      —————————————————————————————————————————
      Γ, x : σ + τ ⊢ case x (λ y. e₁) (λ z. e₂) *)
   | Case (x, y, e1, z, e2) ->
     let* (s, t) = as_sum (find_var x vars) in
-    check (add y s vars) e1 covars *>
-    check (add z t vars) e2 covars
+    check (extend y s vars) e1 covars *>
+    check (extend z t vars) e2 covars
   (*       Γ, x : σ ⊢ e ⊣ j : τ, Δ
      ———————————————————————————————————
      Γ ⊢ [k](λ x. κ j. e) ⊣ k : σ → τ, Δ *)
   | Fun (k, x, j, e) ->
     let* (s, t) = as_arr (find_covar k covars) in
-    check (add x s vars) e (add j t covars)
+    check (extend x s vars) e (extend j t covars)
   (*    Γ ⊢ e₁ ⊣ k : σ, Δ    Γ, y : τ ⊢ e₂ ⊣ Δ
      ————————————————————————————————————————————
      Γ, x : σ → τ ⊢ let y = x (κ k. e₁) in e₂ ⊣ Δ *)
   | LetApp (y, x, k, e1, e2) ->
     let* (s, t) = as_arr (find_var x vars) in
-    check vars e1 (add k s covars) *>
-    check (add y t vars) e2 covars
+    check vars e1 (extend k s covars) *>
+    check (extend y t vars) e2 covars
   (*         Γ ⊢ e ⊣ k : τ, Δ
      ————————————————————————————————
      Γ, x : ¬ τ ⊢ let x -> k in e ⊣ Δ *)
   | ToCo (x, k, e) ->
     let* t = as_neg (find_var x vars) in
-    check vars e (add k t covars)
+    check vars e (extend k t covars)
   (*         Γ, x : τ ⊢ e ⊣ Δ
      ————————————————————————————————
      Γ ⊢ let x <- k in e ⊣ k : ¬ τ, Δ *)
   | OfCo (x, k, e) ->
     let* t = as_neg (find_covar k covars) in
-    check (add x t vars) e covars
+    check (extend x t vars) e covars
+  (*           Γ, x : σ, .. ⊢ e ⊣ j : τ, .., Δ
+    —————————————————————————————————————————————————————
+    Γ ⊢ [k](λ x .. . κ j .. . e) ⊣ k : (σ, .. ⊢ τ, ..), Δ *)
+  | LK (k, xs, js, e) ->
+    let* (ss, ts) = as_vdash (find_covar k covars) in
+    let open List in
+    if length xs = length ss then Err (`LKArgArity (xs, ss)) else
+    if length js = length ts then Err (`LKContArity (js, ts)) else
+    let extends vs ts vts = fold_right (fun (v, t) vts -> extend v t vts) (combine vs ts) vts in
+    check (extends xs ss vars) e (extends js ts covars)
+ (*          Γ ⊢ e₁ ⊣ k : σ, Δ    ..    Γ, y : τ ⊢ e₂ ⊣ Δ    ..
+    ————————————————————————————————————————————————————————————————————
+    Γ, x : (σ, .. ⊢ τ, ..) ⊢ case x (κ k. e₁) .. of (λ y. e₂) .. end ⊣ Δ *)
+  | LKApp (x, kes, yes) ->
+    let* (ss, ts) = as_vdash (find_var x vars) in
+    let open List in
+    if length kes = length ss then Err (`LKAppArgArity (kes, ss)) else
+    if length yes = length ts then Err (`LKAppContArity (yes, ts)) else
+    let mapM_ f xs = fold_right ( *> ) (map f xs) (Ok ()) in
+    mapM_ (fun ((k, e), s) -> check vars e (extend k s covars)) (combine kes ss) *>
+    mapM_ (fun ((y, e), t) -> check (extend y t vars) e covars) (combine yes ts)
 
 (* Conversion to lambda calculus *)
 
@@ -256,6 +284,14 @@ let rec c_exp : exp -> lc = function
   | ToCo (x, k, e) -> klam k (c_exp e) $ c_x x
   (* [[ let x <- k in e ]] = k (λ x. [[e]]) *)
   | OfCo (x, k, e) -> c_k k $ xlam x (c_exp e)
+  (* [[ [k](λ x .. . κ j .. . e) ]] = k (λ x .. j .. . [[e]]) *)
+  | LK (k, xs, js, e) -> let open List in c_k k $ fold_right xlam xs (fold_right klam js (c_exp e))
+  (* [[ case x (κ k. e₁) .. of (λ y. e₂) .. end ]] = x (λ k. [[e₁]]) .. (λ y. [[e₂]]) .. *)
+  | LKApp (x, kes, yes) ->
+    let open List in
+    fold_left (fun e (y, e2) -> e $ xlam y (c_exp e2))
+      (fold_left (fun e (k, e1) -> e $ klam k (c_exp e1)) (c_x x) kes)
+      yes
 
 (* Pretty-printing for sequent calculus terms *)
 
@@ -274,6 +310,7 @@ let rec p_ty : ty -> string = function
   | Vdash (ss, ts) ->
     cat ["("; String.concat ", " (List.map p_ty ss); " ⊢ "; String.concat ", " (List.map p_ty ts); ")"]
 
+let unwords_by f xs = String.concat " " (List.map f xs)
 let rec p_exp : exp -> string = function
   | Axiom (k, x) -> cat ["["; p_k k; "]"; p_x x]
   | Let (x, t, k, e1, e2) ->
@@ -288,6 +325,11 @@ let rec p_exp : exp -> string = function
   | LetApp (y, x, k, e1, e2) -> cat ["let "; p_x y; " = "; p_x x; " "; p_kappa k e1; " in "; p_exp e2]
   | ToCo (x, k, e) -> cat ["let "; p_x x; " -> "; p_k k; " in "; p_exp e]
   | OfCo (x, k, e) -> cat ["let "; p_x x; " <- "; p_k k; " in "; p_exp e]
+  | LK (k, xs, js, e) ->
+    cat ["["; p_k k; "](λ "; unwords_by p_x xs; ". κ "; unwords_by p_k js; ". "; p_exp e]
+  | LKApp (x, kes, yes) ->
+    cat ["case "; p_x x; " "; unwords_by (fun (k, e) -> p_kappa k e) kes; " of ";
+      unwords_by (fun (y, e) -> p_lambda y e) yes; " end"]
 and p_kappa k e = cat ["(κ "; p_k k; ". "; p_exp e]
 and p_lambda x e = cat ["(λ "; p_x x; ". "; p_exp e]
 
@@ -334,6 +376,6 @@ let () = print_endline (p_exp dne_r)
 let () = print_endline (p_lc (c_exp dne_r))
 
 (* x : ¬ ¬ 1 ⊢ let x -> j in let y <- j in k[y] ⊣ k : 1 *)
-let res = check (add dne_lx (Neg (Neg Unit)) empty) dne_l (add dne_lk Unit empty)
+let res = check (extend dne_lx (Neg (Neg Unit)) empty) dne_l (extend dne_lk Unit empty)
 
-let res = check (add dne_lx (Neg (Neg Unit)) empty) (Axiom (dne_lk, dne_lx)) (add dne_lk Unit empty)
+let res = check (extend dne_lx (Neg (Neg Unit)) empty) (Axiom (dne_lk, dne_lx)) (extend dne_lk Unit empty)
