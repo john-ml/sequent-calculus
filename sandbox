@@ -6,7 +6,7 @@ Types
      | σ × τ
      | σ → τ
      | ¬ τ
-		 | (σ, .. ⊢ τ, ..)
+     | (σ, .. ⊢ τ, ..)
 
 Typing contexts
   Γ, Δ ∷= · | Γ, x : τ
@@ -17,7 +17,9 @@ Terms
 
      Variables
      | [k]x
-     | let x = κ k. e₁ in e₂
+     | cut (κ k. e₁) (λ x. e₂)
+       =: let x = κ k. e₁ in e₂
+       =: cont k = λ x. e₁ in e₂
 
      Unit and zero
      | absurd x
@@ -62,7 +64,7 @@ Typing judgment Γ ⊢ e ⊣ Δ
 
     Γ ⊢ e₁ ⊣ k : τ, Δ    Γ, x : τ ⊢ e₂ ⊣ Δ
     ——————————————————————————————————————
-        Γ ⊢ let x = κ k. e₁ in e₂ ⊣ Δ
+       Γ ⊢ cut (κ k. e₁) (λ x. e₂) ⊣ Δ
 
   Unit and zero
 
@@ -135,7 +137,7 @@ Conversion to LC
 [[ σ, .. ⊢ τ, .. ]] R = [[ σ ]] R → .. → ([[ τ ]] R → R) → .. → R
 
                                    [[ [k]x ]] = k x
-                  [[ let x = κ k. e₁ in e₂ ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
+                [[ cut (κ k. e₁) (λ x. e₂) ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
                                    [[ [k]★ ]] = k ★
              [[ pair k (κ h. e₁) (κ j. e₂) ]] = (λ h. [[e₁]]) (λ v. (λ j. [[e₂]]) (λ w. k (v, w)))
                     [[ let (y, z) = x in e ]] = let (y, z) = x in [[e]]
@@ -166,7 +168,7 @@ Negation
                             —————————————————————————————————————
       Γ ⊢ _ ⊣ j : ¬ τ, Δ    x : τ, y : ¬ τ ⊢ let y -> k in [k]x ⊣
       ———————————————————————————————————————————————————————————
-       Γ, x : τ ⊢ let y : ¬ τ = κ j. _ in let y -> k in [k]x ⊣ Δ
+      Γ, x : τ ⊢ cont j : ¬ τ = λ y. let y -> k in [k]x in _ ⊣ Δ
     and
              ————————————————————
              j : τ ⊢ [k]y ⊣ k : τ
@@ -175,7 +177,7 @@ Negation
       ———————————————————————————————————————————————————————————
       Γ ⊢ let x : ¬ τ = (κ j. let y <- j in [k]y) in _ ⊣ k : τ, Δ
   What control operators do these derived rules correspond to?
-    [[ let y : ¬ τ = κ j. _ in let y -> k in [k]x ]]
+    [[ cont j : ¬ τ = λ y. let y -> k in [k]x in _ ]]
       = (λ j. [[_]]) (λ y. [[ let y -> k in [k]x ]]
       = (λ j. [[_]]) (λ y. (λ k. k x) y)
       = (λ j. [[_]]) (λ y. y x)
@@ -224,3 +226,41 @@ Cocurrying?
       ≡ p ← q + r
   So p → .. → q → 1 ← r ← .. ← s
    ≡ p × .. × q → r + .. + s
+
+β-laws
+  Sums (k ∉ FV(e₁), x ∉ FV(e₂) ∪ FV(e₃))
+    let x : σ + τ = κ k.
+      let [h, j] = k in e₁
+    in
+    case x (λ y. e₂) (λ z. e₃)
+    -->
+    cont h : σ = λ y. e₂ in
+    cont j : τ = λ z. e₃ in
+    e₁
+  Products (k ∉ FV(e₁) ∪ FV(e₂), x ∉ FV(e₃))
+    let x : σ × τ = κ k. pair k (κ h. e₁) (κ j. e₂) in
+    let (y, z) = x in
+    e₃
+    -->
+    let y : σ = κ h. e₁ in
+    let z : σ = κ j. e₂ in
+    e₃
+  Functions (k ∉ FV(e₁), f ∉ FV(e₂) ∪ FV(e₃))
+    let f : σ → τ = κ k. [k](λ x. κ h. e₁) in
+    let y = f (κ j. e₂) in
+    e₃
+    -->
+    let x : σ = κ j. e₂ in
+    let y : τ = κ h. e₁ in
+    e₃
+  Sequents (k ∉ FV(e₁), f ∉ FV(e₂) ∪ .. ∪ FV(e₃) U ..)
+    let f : (σ, .. ⊢ τ, ..) = κ k. [k](λ x ... κ j ... e₁) in
+    case f (κ h. e₂) .. of (λ y. e₃) .. end
+    -->
+    let x : σ = κ h. e₂ in
+              .
+              .
+    cont j : τ = λ y. e₃ in
+               .
+               .
+    e₁

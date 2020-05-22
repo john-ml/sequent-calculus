@@ -1,3 +1,4 @@
+
 type ('a, 'e) result = Ok of 'a | Err of 'e
 
 let (let*) x k = match x with Ok y -> k y | Err e -> Err e
@@ -38,7 +39,7 @@ type exp
      | [k]x
      | let x : τ = κ k. e₁ in e₂ *)
   = Axiom of covar * var
-  | Let of var * ty * covar * exp * exp
+  | Cut of ty * covar * exp * var * exp
   (* Unit and zero
      | absurd x
      | [k]★ *)
@@ -145,9 +146,9 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
     let* t' = find_covar k covars in
     if t = t' then Ok () else Err (`Mismatch (t, t'))
   (* Γ ⊢ e₁ ⊣ k : τ, Δ    Γ, x : τ ⊢ e₂ ⊣ Δ
-     —————————————————————————————————————— Cut
-         Γ ⊢ let x = κ k. e₁ in e₂ ⊣ Δ           *)
-  | Let (x, t, k, e1, e2) ->
+     ——————————————————————————————————————
+        Γ ⊢ cut (κ k. e₁) (λ x. e₂) ⊣ Δ      *)
+  | Cut (t, k, e1, x, e2) ->
     check vars e1 (extend k t covars) *>
     check (extend x t vars) e2 covars
   (*
@@ -256,7 +257,7 @@ let rec c_exp : exp -> lc = function
   (* [[ [k]x ]] = k x *)
   | Axiom (k, x) -> c_k k $ c_x x
   (* [[ let x = κ k. e₁ in e₂ ]] = (λ k. [[e₁]]) (λ x. [[e₂]]) *)
-  | Let (x, _, k, e1, e2) -> klam k (c_exp e1) $ xlam x (c_exp e2)
+  | Cut (_, k, e1, x, e2) -> klam k (c_exp e1) $ xlam x (c_exp e2)
   (* [[ [k]★ ]] = k ★ *)
   | Trivial k -> c_k k $ LTrivial
   (* [[ absurd x ]] = case x of end *)
@@ -313,8 +314,8 @@ let rec p_ty : ty -> string = function
 
 let rec p_exp : exp -> string = function
   | Axiom (k, x) -> cat ["["; p_k k; "]"; p_x x]
-  | Let (x, t, k, e1, e2) ->
-    cat ["let "; p_x x; " : "; p_ty t; " = "; p_kappa k e1; " in "; p_exp e2]
+  | Cut (t, k, e1, x, e2) ->
+    cat ["cut "; p_ty t; " "; p_kappa k e1; " in "; p_lambda x e2]
   | Absurd x -> cat ["absurd "; p_x x]
   | Trivial k -> cat ["["; p_k k; "]★"]
   | Pair (k, h, e1, j, e2) -> cat ["pair "; p_k k; " "; p_kappa h e1; " "; p_kappa j e2]
@@ -330,8 +331,8 @@ let rec p_exp : exp -> string = function
   | LKApp (x, kes, yes) ->
     cat ["case "; p_x x; " "; unwords_by (fun (k, e) -> p_kappa k e) kes; " of ";
       unwords_by (fun (y, e) -> p_lambda y e) yes; " end"]
-and p_kappa k e = cat ["(κ "; p_k k; ". "; p_exp e]
-and p_lambda x e = cat ["(λ "; p_x x; ". "; p_exp e]
+and p_kappa k e = cat ["(κ "; p_k k; ". "; p_exp e; ")"]
+and p_lambda x e = cat ["(λ "; p_x x; ". "; p_exp e; ")"]
 
 (* Pretty-printing for lambda terms *)
 
