@@ -17,9 +17,9 @@ Terms
 
      Variables
      | [k]x
-     | cut (κ k. e₁) (λ x. e₂)
-       =: let x = κ k. e₁ in e₂
-       =: let k = λ x. e₁ in e₂
+     | cut τ (κ k. e₁) (λ x. e₂)
+       =: let x : τ = κ k. e₁ in e₂
+       =: let k : τ = λ x. e₂ in e₁
 
      Unit and zero
      | absurd x
@@ -64,7 +64,7 @@ Typing judgment Γ ⊢ e ⊣ Δ
 
     Γ ⊢ e₁ ⊣ k : τ, Δ    Γ, x : τ ⊢ e₂ ⊣ Δ
     ——————————————————————————————————————
-       Γ ⊢ cut (κ k. e₁) (λ x. e₂) ⊣ Δ
+      Γ ⊢ cut τ (κ k. e₁) (λ x. e₂) ⊣ Δ
 
   Unit and zero
 
@@ -137,7 +137,7 @@ Conversion to LC
 [[ σ, .. ⊢ τ, .. ]] R = [[ σ ]] R → .. → ([[ τ ]] R → R) → .. → R
 
                                    [[ [k]x ]] = k x
-                [[ cut (κ k. e₁) (λ x. e₂) ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
+              [[ cut _ (κ k. e₁) (λ x. e₂) ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
                                    [[ [k]★ ]] = k ★
              [[ pair k (κ h. e₁) (κ j. e₂) ]] = (λ h. [[e₁]]) (λ v. (λ j. [[e₂]]) (λ w. k (v, w)))
                     [[ let (y, z) = x in e ]] = let (y, z) = x in [[e]]
@@ -227,7 +227,7 @@ Cocurrying?
   So p → .. → q → 1 ← r ← .. ← s
    ≡ p × .. × q → r + .. + s
 
-β laws
+β-laws
   Sums (k ∉ FV(e₁), x ∉ FV(e₂) ∪ FV(e₃))
     let x : σ + τ = κ k.
       let [h, j] = k in e₁
@@ -265,7 +265,56 @@ Cocurrying?
                .
     e₁
 
-η laws
+Cut elimination
+  Variables
+    let x : τ = κ k. [k]y in e
+    --> e[y/x]
+  Unit
+    let x : 1 = κ. [k]★ in e
+    --> e[★/x]
+  Zero
+    let x : τ = κ. absurd y in e
+    --> absurd y
+  Sums, Products, Functions, Sequents: use β-laws
+  Negation L
+    let x : τ = κ k.
+      let y -> j in e₁
+    in e₂
+    -->
+    let y -> j in
+    let x : τ = κ k. e₁ in
+    e₂
+  Negation R
+    let x : τ = κ k.
+       let y <- j in e₁
+    in e₂
+    -->
+    let y <- j in
+    let x : τ = κ k. e₁ in
+    e₂
+  Are these last 2 actually OK to do?
+    Negation L
+      [[ let x = κ k. let y -> j in e₁ in e₂ ]]
+        = (λ k. [[ let y -> j in e₁ ]]) (λ x. [[e₂]])
+        = (λ k. (λ j. [[e₁]]) y) (λ x. [[e₂]])
+        = let k = λ x. [[e₂]] in let j = y in [[e₁]]
+        = let j = y in let k = λ x. [[e₂]] in [[e₁]]
+        = let j = y in (λ k. [[e₁]]) (λ x. [[e₂]])
+        = let j = y in [[ let x = κ k. e₁ in e₂ ]]
+        = [[ let y -> j in let x = κ k. e₁ in e₂ ]]
+      Can swap let bindings for j and k
+    Negation R
+      [[ let x = κ k. let y <- j in e₁ in e₂ ]]
+        = (λ k. [[ let y <- j in e₁ ]]) (λ x. [[e₂]])
+        = (λ k. j (λ y. [[e₁]])) (λ x. [[e₂]])
+        = let k = λ x. [[e₂]] in j (λ y. [[e₁]])
+        = j (λ y. let k = λ x. [[e₂]] in [[e₁]])
+        = j (λ y. (λ k. [[e₁]]) (λ x. [[e₂]]))
+        = j (λ y. [[ let x = κ k. e₁ in e₂ ]])
+        = [[ let y <- j in let x = κ k. e₁ in e₂ ]]
+      Can push let binding for k into j's continuation
+
+η-laws
   Sums
     case x (λ y. let [h, _] = k in [h]y) (λ z. let [_, j] = k in [j]z)
     --> [k]x
