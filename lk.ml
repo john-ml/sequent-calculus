@@ -19,6 +19,7 @@ type ty
   | Prod of ty * ty
   | Arr of ty * ty
   | Neg of ty
+  | Vdash of ty list * ty list
 
 (* Typing contexts: Γ, Δ ∷= · | Γ, x : τ *)
 
@@ -35,9 +36,9 @@ let add (x : 'a) (t : ty) (c : 'a ctx) : 'a ctx =
 type exp
   (* Variables
      | [k]x
-     | let x = κ k. e₁ in e₂ *)
+     | let x : τ = κ k. e₁ in e₂ *)
   = Axiom of covar * var
-  | Let of ty * (covar -> exp) * (var -> exp)
+  | Let of var * ty * covar * exp * exp
   (* Unit and zero
      | absurd x
      | [k]★ *)
@@ -63,6 +64,10 @@ type exp
      | let x <- k in e *)
   | ToCo of var * (covar -> exp)
   | OfCo of covar * (var -> exp)
+  (* Sequents
+     | [k](λ x .. . κ j .. . e)
+     | case x (κ k. e₁) .. of (λ y. e₂) .. end *)
+  (* | LK of covar * int * (covar list -> exp) * int * (var list -> exp) *)
 
 (* Typing *)
 
@@ -135,11 +140,9 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
   (* Γ ⊢ e₁ ⊣ k : τ, Δ    Γ, x : τ ⊢ e₂ ⊣ Δ
      —————————————————————————————————————— Cut
          Γ ⊢ let x = κ k. e₁ in e₂ ⊣ Δ           *)
-  | Let (t, ke1, xe2) ->
-    let k = Covar (fresh ()) in
-    let x = Var (fresh ()) in
-    check vars (ke1 k) (add k t covars) *>
-    check (add x t vars) (xe2 x) covars
+  | Let (x, t, k, e₁, e₂) ->
+    check vars e₁ (add k t covars) *>
+    check (add x t vars) e₂ covars
   (*
     ——————————————————    ——————————————
     x : 0 ⊢ absurd x ⊣    ⊢ [k]★ ⊣ k : 1 *)
@@ -237,7 +240,7 @@ let rec c_exp : exp -> lc = function
   (* [[ [k]x ]] = k x *)
   | Axiom (k, x) -> c_k k $ c_x x
   (* [[ let x = κ k. e₁ in e₂ ]] = (λ k. [[e₁]]) (λ x. [[e₂]]) *)
-  | Let (_, ke1, xe2) -> klam (fun k -> c_exp (ke1 k)) $ xlam (fun x -> c_exp (xe2 x))
+  | Let (x, _, k, e₁, e₂) -> klam (fun k -> c_exp e₁) $ xlam (fun x -> c_exp e₂)
   (* [[ [k]★ ]] = k ★ *)
   | Trivial k -> c_k k $ LTrivial
   (* [[ absurd x ]] = case x of end *)
@@ -280,12 +283,13 @@ let rec p_ty : ty -> string = function
   | Prod (s, t) -> cat ["("; p_ty s; " × "; p_ty t; ")"]
   | Arr (s, t) -> cat ["("; p_ty s; " → "; p_ty t; ")"]
   | Neg t -> cat ["¬"; p_ty t]
+  | Vdash (ss, ts) ->
+    cat ["("; String.concat ", " (List.map p_ty ss); " ⊢ "; String.concat ", " (List.map p_ty ts); ")"]
 
 let rec p_exp : exp -> string = function
   | Axiom (k, x) -> cat ["["; p_k k; "]"; p_x x]
-  | Let (t, ke1, xe2) ->
-    let x = Var (fresh ()) in
-    cat ["let "; p_x x; " : "; p_ty t; " = "; p_kappa ke1; " in "; p_exp (xe2 x)]
+  | Let (x, t, k, e₁, e₂) ->
+    cat ["let "; p_x x; " : "; p_ty t; " = "; p_kappa' k e₁; " in "; p_exp e₂]
   | Absurd x -> cat ["absurd "; p_x x]
   | Trivial k -> cat ["["; p_k k; "]★"]
   | Pair (k, he1, je2) -> cat ["pair "; p_k k; " "; p_kappa he1; " "; p_kappa je2]
@@ -312,6 +316,7 @@ let rec p_exp : exp -> string = function
     let x = Var (fresh ()) in
     cat ["let "; p_x x; " <- "; p_k k; " in "; p_exp (xe x)]
 and p_kappa ke = let k = Covar (fresh ()) in cat ["(κ "; p_k k; ". "; p_exp (ke k)]
+and p_kappa' k e = cat ["(κ "; p_k k; ". "; p_exp e]
 and p_lambda xe = let x = Var (fresh ()) in cat ["(λ "; p_x x; ". "; p_exp (xe x)]
 
 (* Pretty-printing for lambda terms *)
