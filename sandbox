@@ -6,6 +6,7 @@ Types
      | σ × τ
      | σ → τ
      | ¬ τ
+		 | (σ, .. ⊢ τ, ..)
 
 Typing contexts
   Γ, Δ ∷= · | Γ, x : τ
@@ -37,6 +38,10 @@ Terms
      Negation
      | let x -> k in e
      | let x <- k in e
+
+     Sequents
+     | [k](λ x .. . κ j .. . e)
+     | case x (κ k. e₁) .. of (λ y. e₂) .. end
 
 Typing judgment Γ ⊢ e ⊣ Δ
 
@@ -104,6 +109,16 @@ Typing judgment Γ ⊢ e ⊣ Δ
     ————————————————————————————————
     Γ ⊢ let x <- k in e ⊣ k : ¬ τ, Δ
 
+  Sequents
+
+               Γ, x : σ, .. ⊢ e ⊣ j : τ, .., Δ
+    —————————————————————————————————————————————————————
+    Γ ⊢ [k](λ x .. . κ j .. . e) ⊣ k : (σ, .. ⊢ τ, ..), Δ
+
+             Γ ⊢ e₁ ⊣ k : σ    ..    Γ, y : τ ⊢ e₂ ⊣ Δ    ..
+    ————————————————————————————————————————————————————————————————————
+    Γ, x : (σ, .. ⊢ τ, ..) ⊢ case x (κ k. e₁) .. of (λ y. e₂) .. end ⊣ Δ
+
 Conversion to LC
 
   [[ _ ]] : term → lc_term such that
@@ -111,24 +126,27 @@ Conversion to LC
     .., x : σ ⊢ e ⊣ k : τ, .. →
     ∀ R. .., x : [[σ]]R, .., k : [[τ]]R → R ⊢ [[e]] : R where
 
-          [[ 0 ]] R = 0
-          [[ 1 ]] R = 1
-      [[ σ + τ ]] R = [[ σ ]] R + [[ τ ]] R
-      [[ σ × τ ]] R = [[ σ ]] R × [[ τ ]] R
-      [[ σ → τ ]] R = [[ σ ]] R → ([[ τ ]] R → R) → R
-        [[ ¬ τ ]] R = [[ τ ]] R → R
+            [[ 0 ]] R = 0
+            [[ 1 ]] R = 1
+        [[ σ + τ ]] R = [[ σ ]] R + [[ τ ]] R
+        [[ σ × τ ]] R = [[ σ ]] R × [[ τ ]] R
+        [[ σ → τ ]] R = [[ σ ]] R → ([[ τ ]] R → R) → R
+          [[ ¬ τ ]] R = [[ τ ]] R → R
+[[ σ, .. ⊢ τ, .. ]] R = [[ σ ]] R → .. → ([[ τ ]] R → R) → .. → R
 
-                        [[ [k]x ]] = k x
-       [[ let x = κ k. e₁ in e₂ ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
-                        [[ [k]★ ]] = k ★
-  [[ pair k (κ h. e₁) (κ j. e₂) ]] = (λ h. [[e₁]]) (λ v. (λ j. [[e₂]]) (λ w. k (v, w)))
-         [[ let (y, z) = x in e ]] = let (y, z) = x in [[e]]
-         [[ let [h, j] = k in e ]] = (λ h j. [[e]]) (λ v. k (ι₁ v)) (λ w. k (ι₂ w))
-  [[ case x (λ y. e₁) (λ z. e₂) ]] = case x of ι₁ y -> [[e₁]] | ι₂ z -> [[e₂]] end
-            [[ [k](λ x. κ j. e) ]] = k (λ x j. [[e]])
-   [[ let y = x (κ k. e₁) in e₂ ]] = (λ k. e₁) (λ v. (λ y. e₂) (x v))
-             [[ let x -> k in e ]] = (λ k. [[e]]) x
-             [[ let x <- k in e ]] = k (λ x. [[e]])
+                                   [[ [k]x ]] = k x
+                  [[ let x = κ k. e₁ in e₂ ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
+                                   [[ [k]★ ]] = k ★
+             [[ pair k (κ h. e₁) (κ j. e₂) ]] = (λ h. [[e₁]]) (λ v. (λ j. [[e₂]]) (λ w. k (v, w)))
+                    [[ let (y, z) = x in e ]] = let (y, z) = x in [[e]]
+                    [[ let [h, j] = k in e ]] = (λ h j. [[e]]) (λ v. k (ι₁ v)) (λ w. k (ι₂ w))
+             [[ case x (λ y. e₁) (λ z. e₂) ]] = case x of ι₁ y -> [[e₁]] | ι₂ z -> [[e₂]] end
+                       [[ [k](λ x. κ j. e) ]] = k (λ x j. [[e]])
+              [[ let y = x (κ k. e₁) in e₂ ]] = (λ k. e₁) (λ v. (λ y. e₂) (x v))
+                        [[ let x -> k in e ]] = (λ k. [[e]]) x
+                        [[ let x <- k in e ]] = k (λ x. [[e]])
+               [[ [k](λ x .. . κ j .. . e) ]] = k (λ x .. j .. . [[e]])
+[[ case x (κ k. e₁) .. of (λ y. e₂) .. end ]] = x (λ k. [[e₁]]) .. (λ y. [[e₂]]) ..
 
 Negation
   What do (let x -> k in e) and (let x <- k in e) do? Rough guesses:
