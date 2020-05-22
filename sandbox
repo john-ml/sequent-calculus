@@ -6,6 +6,7 @@ Types
      | τ × ..
      | ¬ τ
      | (σ, .. ⊢ τ, ..)
+     | μ α. τ
 
 Typing contexts
   Γ, Δ ∷= · | Γ, x : τ
@@ -39,6 +40,10 @@ Terms
      Sequents
      | [k](λ x .. . κ j .. . e)
      | case x (κ k. e₁) .. of y -> e₂ | .. end
+
+     Recursive types
+     | [k](κ j. roll e)
+     | let y = unroll x in e
 
 Typing judgment Γ ⊢ e ⊣ Δ
 
@@ -106,6 +111,16 @@ Typing judgment Γ ⊢ e ⊣ Δ
     ————————————————————————————————————————————————————————————————————
     Γ, x : (σ, .. ⊢ τ, ..) ⊢ case x (κ k. e₁) .. of y -> e₂ | .. end ⊣ Δ
 
+  Recursive types
+
+         Γ ⊢ e ⊣ j : τ[μ α. τ/α], Δ
+    ————————————————————————————————————
+    Γ ⊢ [k](κ j. roll e) ⊣ k : μ α. τ, Δ
+
+           Γ, y : τ[μ α. τ/α] ⊢ e ⊣ Δ
+    —————————————————————————————————————————
+    Γ, x : μ α. τ ⊢ let y = unroll x in e ⊣ Δ
+
 Conversion to LC
 
   [[ _ ]] : term → lc_term such that
@@ -120,6 +135,7 @@ Conversion to LC
         [[ σ → τ ]] R = [[ σ ]] R → ([[ τ ]] R → R) → R
           [[ ¬ τ ]] R = [[ τ ]] R → R
 [[ σ, .. ⊢ τ, .. ]] R = [[ σ ]] R → .. → ([[ τ ]] R → R) → .. → R
+       [[ μ α. τ ]] R = μ α. [[ τ ]] R
 
                                    [[ [k]x ]] = k x
               [[ cut _ (κ k. e₁) (λ x. e₂) ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
@@ -132,6 +148,8 @@ Conversion to LC
                         [[ let x <- k in e ]] = k (λ x. [[e]])
                [[ [k](λ x .. . κ j .. . e) ]] = k (λ x .. j .. . [[e]])
 [[ case x (κ k. e₁) .. of y -> e₂ | .. end ]] = x (λ k. [[e₁]]) .. (λ y. [[e₂]]) ..
+                       [[ [k](κ j. roll e) ]] = (λ j. [[e]]) (λ v. k (roll v))
+                  [[ let y = unroll x in e ]] = let y = unroll x in [[e]]
 
 Negation
   What do (let x -> k in e) and (let x <- k in e) do? Rough guesses:
@@ -228,14 +246,6 @@ Cocurrying?
     let y : σ = κ h. e₁ in
     let z : σ = κ j. e₂ in
     e₃
-  Functions (k ∉ FV(e₁), f ∉ FV(e₂) ∪ FV(e₃))
-    let f : σ → τ = κ k. [k](λ x. κ h. e₁) in
-    let y = f (κ j. e₂) in
-    e₃
-    -->
-    let x : σ = κ j. e₂ in
-    let y : τ = κ h. e₁ in
-    e₃
   Sequents (k ∉ FV(e₁), f ∉ FV(e₂) ∪ .. ∪ FV(e₃) U ..)
     let f : (σ, .. ⊢ τ, ..) = κ k. [k](λ x ... κ j ... e₁) in
     case f (κ h. e₂) .. of y -> e₃ | .. end
@@ -248,7 +258,15 @@ Cocurrying?
                .
     e₁
 
-Cut elimination
+η-laws
+  Sums
+    case x of ι₁ y -> let [h, _] = k in [h]y | ι₂ z -> let [_, j] = k in [j]z end
+    --> [k]x
+  Products
+    let (y, z) = x in [k](κ h. [h]y, κ j. [j]z)
+    --> [k]x
+
+Misc. cut elimination
   Variables
     let x : τ = κ k. [k]y in e
     --> e[y/x]
@@ -258,7 +276,6 @@ Cut elimination
   Zero
     let x : τ = κ. absurd y in e
     --> absurd y
-  Sums, Products, Functions, Sequents: use β-laws
   Negation L
     let x : τ = κ k.
       let y -> j in e₁
@@ -296,14 +313,3 @@ Cut elimination
         = j (λ y. [[ let x = κ k. e₁ in e₂ ]])
         = [[ let y <- j in let x = κ k. e₁ in e₂ ]]
       Can push let binding for k into j's continuation
-
-η-laws
-  Sums
-    case x of ι₁ y -> let [h, _] = k in [h]y | ι₂ z -> let [_, j] = k in [j]z end
-    --> [k]x
-  Products
-    let (y, z) = x in [k](κ h. [h]y, κ j. [j]z)
-    --> [k]x
-  Functions
-    [k](λ x. κ h. let y = f (κ j. [j]x) in h[y])
-    --> [k]f
