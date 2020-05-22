@@ -8,8 +8,8 @@ let ( *> ) m1 m2 = let* _ = m1 in m2
 (* Types
 
 τ ∷= 0 | 1
-   | σ + τ
-   | σ × τ
+   | τ + ..
+   | τ × ..
    | σ → τ
    | ¬ τ
 
@@ -17,7 +17,7 @@ let ( *> ) m1 m2 = let* _ = m1 in m2
 type ty
   = Void | Unit
   | Sum of ty list
-  | Prod of ty * ty
+  | Prod of ty list
   | Neg of ty
   | Vdash of ty list * ty list
 
@@ -49,10 +49,10 @@ type exp
   | Absurd of var
   | Trivial of covar
   (* Products
-     | pair k (κ h. e₁) (κ j. e₂)
-     | let (y, z) = x in e *)
-  | Pair of covar * covar * exp * covar * exp
-  | Unpair of var * var * var * exp
+     | [k](κ h. e, ..)
+     | let (y, ..) = x in e *)
+  | Tuple of covar * (covar * exp) list
+  | Untuple of var list * var * exp
   (* Sums
      | let [j, ..] = k in e
      | case x of y -> e | .. end *)
@@ -90,8 +90,8 @@ let as_unit m =
 let as_prod m =
   let* ty = m in
   match ty with
-  | Prod (s, t) -> Ok (s, t)
-  | _ -> Err (`ExGot ("_ × _", ty))
+  | Prod ts -> Ok ts
+  | _ -> Err (`ExGot ("_ × ..", ty))
 
 let as_sum m =
   let* ty = m in
@@ -150,19 +150,21 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
     x : 0 ⊢ absurd x ⊣    ⊢ [k]★ ⊣ k : 1 *)
   | Absurd x -> Ok ()
   | Trivial k -> as_unit (find_covar k covars)
-  (*    Γ ⊢ e₁ ⊣ h : σ, Δ    Γ ⊢ e₂ ⊣ j : τ, Δ
-     —————————————————————————————————————————————
-     Γ ⊢ pair k (κ h. e₁) (κ j. e₂) ⊣ k : σ × τ, Δ *)
-  | Pair (k, h, e1, j, e2) ->
-    let* (s, t) = as_prod (find_covar k covars) in
-    check vars e1 (extend h s covars) *>
-    check vars e2 (extend j t covars)
-  (*        Γ, y : σ, z : τ ⊢ e ⊣ Δ
-     ——————————————————————————————————————
-     Γ, x : σ × τ ⊢ let (y, z) = x in e ⊣ Δ *)
-  | Unpair (y, z, x, e) ->
-    let* (s, t) = as_prod (find_var x vars) in
-    check (extend y s (extend z t vars)) e covars
+  (*       Γ ⊢ e ⊣ j : τ, Δ    ..
+     ———————————————————————————————————
+     Γ ⊢ [k](κ j. e, ..) ⊣ k : τ × .., Δ *)
+  | Tuple (k, jes) ->
+    let* ts = as_prod (find_covar k covars) in
+    let open List in
+    if length jes <> length ts then Err (`TupleArity (jes, ts)) else
+    mapM_ (fun ((j, e), t) -> check vars e (extend j t covars)) (combine jes ts)
+  (*           Γ, y : τ, .. ⊢ e ⊣ Δ
+     ————————————————————————————————————————
+     Γ, x : τ × .. ⊢ let (y, ..) = x in e ⊣ Δ *)
+  | Untuple (ys, x, e) ->
+    let* ts = as_prod (find_var x vars) in
+    if List.(length ys <> length ts) then Err (`UntupleArity (ys, ts)) else
+    check (extends ys ts vars) e covars
   (*           Γ ⊢ e ⊣ j : τ, .., Δ
      ————————————————————————————————————————
      Γ ⊢ let [j, ..] = k in e ⊣ k : τ + .., Δ *)
@@ -220,8 +222,8 @@ type lc
   | LAbsurd of lc
   | In of int * lc
   | LCase of lc * (string * lc) list
-  | LPair of lc * lc
-  | LUnpair of string * string * lc * lc
+  | LTuple of lc list
+  | LUntuple of string list * lc * lc
 
 let s_x (Var x) = "x" ^ string_of_int x
 let s_k (Covar k) = "k" ^ string_of_int k
@@ -242,13 +244,15 @@ let rec c_exp : exp -> lc = function
   | Trivial k -> c_k k $ LTrivial
   (* [[ absurd x ]] = case x of end *)
   | Absurd x -> LAbsurd (c_x x)
-  (* [[ pair k (κ h. e₁) (κ j. e₂) ]] = (λ h. [[e₁]]) (λ v. (λ j. [[e₂]]) (λ w. k (v, w))) *)
-  | Pair (k, h, e1, j, e2) ->
-    klam h (c_exp e1) $ vlam (fun v -> 
-    klam j (c_exp e2) $ vlam (fun w -> 
-    LPair (v, w)))
-  (* [[ let (y, z) = x in e ]] = let (y, z) = x in [[e]] *)
-  | Unpair (y, z, x, e) -> LUnpair (s_x y, s_x z, c_x x, c_exp e)
+  (* [[ [k](κ j. e, ..) ]] = (λ j. [[e]]) (λ v. .. (λ .. . k (v, ..))) *)
+  | Tuple (k, jes) ->
+    let open List in
+    let vs = map (fun _ -> fresh ()) jes in
+    fold_left
+      (fun res (j, e) -> res $ Lam (s_k j, c_exp e))
+      (c_k k $ LTuple (map (fun v -> LVar (s_x (Var v))) vs)) jes
+  (* [[ let (y, ..) = x in e ]] = let (y, ..) = x in [[e]] *)
+  | Untuple (ys, x, e) -> LUntuple (List.map s_x ys, c_x x, c_exp e)
   (* [[ let [j, ..] = k in e ]] = (λ j .. . [[e]]) (λ v. k (ι₁ v)) .. *)
   | Uncase (js, k, e) ->
     let open List in
@@ -256,7 +260,7 @@ let rec c_exp : exp -> lc = function
       (fun (n, e) j -> (n + 1, e $ vlam (fun v -> c_k k $ In (n, v))))
       (0, fold_right klam js (c_exp e))
       js)
-  (* [[ case x (λ y. e₁) (λ z. e₂) ]] = case x of ι₁ y -> [[e₁]] | ι₂ z -> [[e₂]] end *)
+  (* [[ case x of y -> e | .. end ]] = case x of ι₁ y -> [[e]] | .. end *)
   | Case (x, yes) -> LCase (c_x x, List.map (fun (y, e) -> (s_x y, c_exp e)) yes)
   (* [[ let x -> k in e ]] = (λ k. [[e]]) x *)
   | ToCo (x, k, e) -> klam k (c_exp e) $ c_x x
@@ -286,8 +290,8 @@ let p_k (Covar k) = "k" ^ string_of_int k
 let rec p_ty : ty -> string = function
   | Void -> "0"
   | Unit -> "1"
-  | Sum ts -> cat ["("; String.concat " + " (List.map p_ty ts); ")"]
-  | Prod (s, t) -> cat ["("; p_ty s; " × "; p_ty t; ")"]
+  | Sum ts -> cat ["("; cat_map " + " p_ty ts; ")"]
+  | Prod ts -> cat ["("; cat_map " × " p_ty ts; ")"]
   | Neg t -> cat ["¬"; p_ty t]
   | Vdash (ss, ts) -> cat ["("; commas_by p_ty ss; " ⊢ "; commas_by p_ty ts; ")"]
 
@@ -299,8 +303,8 @@ let rec p_exp : exp -> string = function
     cat ["cut "; p_ty t; " "; paren (p_kappa k e1); " "; paren (p_lambda x e2)]
   | Absurd x -> cat ["absurd "; p_x x]
   | Trivial k -> cat ["["; p_k k; "]★"]
-  | Pair (k, h, e1, j, e2) -> cat ["["; p_k k; "]("; p_kappa h e1; ", "; p_kappa j e2; ")"]
-  | Unpair (y, z, x, e) -> cat ["let ("; p_x y; ", "; p_x z; ") = "; p_x x; " in "; p_exp e]
+  | Tuple (k, jes) -> cat ["["; p_k k; "]("; commas_by (uncurry p_kappa) jes; ")"]
+  | Untuple (ys, x, e) -> cat ["let ("; commas_by p_x ys; ") = "; p_x x; " in "; p_exp e]
   | Uncase (js, k, e) -> cat ["let ["; commas_by p_k js; "] = "; p_k k; " in "; p_exp e]
   | Case (x, yes) -> cat ["case "; p_x x; " of "; arms_by (uncurry p_arm) yes; " end"]
   | ToCo (x, k, e) -> cat ["let "; p_x x; " -> "; p_k k; " in "; p_exp e]
@@ -326,8 +330,9 @@ let rec p_lc : lc -> string = function
   | In (n, e) -> cat ["(ι"; string_of_int n; " "; p_lc e; ")"]
   | LCase (e, yes) ->
     cat ["case "; p_lc e; " of "; arms_by (fun (x, e) -> cat [x; " -> "; p_lc e]) yes; " end"]
-  | LPair (e1, e2) -> cat ["("; p_lc e1; ", "; p_lc e2; ")"]
-  | LUnpair (x, y, e1, e2) -> cat ["let ("; x; ", "; y; ") = "; p_lc e1; " in "; p_lc e2]
+  | LTuple es -> cat ["("; commas_by p_lc es; ")"]
+  | LUntuple (ys, e1, e2) ->
+    cat ["let ("; commas_by (fun y -> y) ys; ") = "; p_lc e1; " in "; p_lc e2]
 
 (* Tests *)
 
