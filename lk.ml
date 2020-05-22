@@ -18,7 +18,6 @@ type ty
   = Void | Unit
   | Sum of ty * ty
   | Prod of ty * ty
-  | Arr of ty * ty
   | Neg of ty
   | Vdash of ty list * ty list
 
@@ -55,11 +54,6 @@ type exp
      | case x (λ y. e₁) (λ z. e₂) *)
   | Uncase of covar * covar * covar * exp
   | Case of var * var * exp * var * exp
-  (* Functions
-     | [k](λ x. κ j. e)
-     | let y = x (κ k. e₁) in e₂ *)
-  | Fun of covar * var * covar * exp
-  | LetApp of var * var * covar * exp * exp
   (* Negation
      | let x -> k in e
      | let x <- k in e *)
@@ -100,12 +94,6 @@ let as_sum m =
   match ty with
   | Sum (s, t) -> Ok (s, t)
   | _ -> Err (`ExGot ("_ + _", ty))
-
-let as_arr m =
-  let* ty = m in
-  match ty with
-  | Arr (s, t) -> Ok (s, t)
-  | _ -> Err (`ExGot ("_ → _", ty))
 
 let as_neg m =
   let* ty = m in
@@ -182,19 +170,6 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
     let* (s, t) = as_sum (find_var x vars) in
     check (extend y s vars) e1 covars *>
     check (extend z t vars) e2 covars
-  (*       Γ, x : σ ⊢ e ⊣ j : τ, Δ
-     ———————————————————————————————————
-     Γ ⊢ [k](λ x. κ j. e) ⊣ k : σ → τ, Δ *)
-  | Fun (k, x, j, e) ->
-    let* (s, t) = as_arr (find_covar k covars) in
-    check (extend x s vars) e (extend j t covars)
-  (*    Γ ⊢ e₁ ⊣ k : σ, Δ    Γ, y : τ ⊢ e₂ ⊣ Δ
-     ————————————————————————————————————————————
-     Γ, x : σ → τ ⊢ let y = x (κ k. e₁) in e₂ ⊣ Δ *)
-  | LetApp (y, x, k, e1, e2) ->
-    let* (s, t) = as_arr (find_var x vars) in
-    check vars e1 (extend k s covars) *>
-    check (extend y t vars) e2 covars
   (*         Γ ⊢ e ⊣ k : τ, Δ
      ————————————————————————————————
      Γ, x : ¬ τ ⊢ let x -> k in e ⊣ Δ *)
@@ -276,11 +251,6 @@ let rec c_exp : exp -> lc = function
       $ vlam (fun w -> c_k k $ In2 w)
   (* [[ case x (λ y. e₁) (λ z. e₂) ]] = case x of ι₁ y -> [[e₁]] | ι₂ z -> [[e₂]] end *)
   | Case (x, y, e1, z, e2) -> LCase (c_x x, s_x y, c_exp e1, s_x z, c_exp e2)
-  (* [[ [k](λ x. κ j. e) ]] = k (λ x j. [[e]]) *)
-  | Fun (k, x, j, e) -> c_k k $ xlam x (klam j (c_exp e))
-  (* [[ let y = x (κ k. e₁) in e₂ ]] = (λ k. e₁) (λ v. (λ y. e₂) (x v)) *)
-  | LetApp (y, x, k, e1, e2) ->
-    klam k (c_exp e1) $ vlam (fun v -> xlam y (c_exp e2) $ (c_x x $ v))
   (* [[ let x -> k in e ]] = (λ k. [[e]]) x *)
   | ToCo (x, k, e) -> klam k (c_exp e) $ c_x x
   (* [[ let x <- k in e ]] = k (λ x. [[e]]) *)
@@ -308,31 +278,31 @@ let rec p_ty : ty -> string = function
   | Unit -> "1"
   | Sum (s, t) -> cat ["("; p_ty s; " + "; p_ty t; ")"]
   | Prod (s, t) -> cat ["("; p_ty s; " × "; p_ty t; ")"]
-  | Arr (s, t) -> cat ["("; p_ty s; " → "; p_ty t; ")"]
   | Neg t -> cat ["¬"; p_ty t]
   | Vdash (ss, ts) -> cat ["("; commas_by p_ty ss; " ⊢ "; commas_by p_ty ts; ")"]
+
+let paren s = cat ["("; s; ")"]
 
 let rec p_exp : exp -> string = function
   | Axiom (k, x) -> cat ["["; p_k k; "]"; p_x x]
   | Cut (t, k, e1, x, e2) ->
-    cat ["cut "; p_ty t; " "; p_kappa k e1; " in "; p_lambda x e2]
+    cat ["cut "; p_ty t; " "; paren (p_kappa k e1); " "; paren (p_lambda x e2)]
   | Absurd x -> cat ["absurd "; p_x x]
   | Trivial k -> cat ["["; p_k k; "]★"]
-  | Pair (k, h, e1, j, e2) -> cat ["pair "; p_k k; " "; p_kappa h e1; " "; p_kappa j e2]
+  | Pair (k, h, e1, j, e2) -> cat ["["; p_k k; "]("; p_kappa h e1; ", "; p_kappa j e2; ")"]
   | Unpair (y, z, x, e) -> cat ["let ("; p_x y; ", "; p_x z; ") = "; p_x x; " in "; p_exp e]
   | Uncase (h, j, k, e) -> cat ["let ["; p_k h; ", "; p_k j; "] = "; p_k k; " in "; p_exp e]
-  | Case (x, y, e1, z, e2) -> cat ["case "; p_x x; " "; p_lambda y e1; " "; p_lambda z e2]
-  | Fun (k, x, j, e) -> cat ["["; p_k k; "](λ "; p_x x; ". κ "; p_k j; ". "; p_exp e]
-  | LetApp (y, x, k, e1, e2) -> cat ["let "; p_x y; " = "; p_x x; " "; p_kappa k e1; " in "; p_exp e2]
+  | Case (x, y, e1, z, e2) -> cat ["case "; p_x x; " of "; p_arm y e1; " | "; p_arm z e2; " end"]
   | ToCo (x, k, e) -> cat ["let "; p_x x; " -> "; p_k k; " in "; p_exp e]
   | OfCo (x, k, e) -> cat ["let "; p_x x; " <- "; p_k k; " in "; p_exp e]
   | LK (k, xs, js, e) ->
     cat ["["; p_k k; "](λ "; unwords_by p_x xs; ". κ "; unwords_by p_k js; ". "; p_exp e]
   | LKApp (x, kes, yes) ->
-    cat ["case "; p_x x; " "; unwords_by (fun (k, e) -> p_kappa k e) kes; " of ";
-      unwords_by (fun (y, e) -> p_lambda y e) yes; " end"]
-and p_kappa k e = cat ["(κ "; p_k k; ". "; p_exp e; ")"]
-and p_lambda x e = cat ["(λ "; p_x x; ". "; p_exp e; ")"]
+    cat ["case "; p_x x; " "; unwords_by (fun (k, e) -> paren (p_kappa k e)) kes; " of ";
+      unwords_by (fun (y, e) -> p_arm y e) yes; " end"]
+and p_kappa k e = cat ["κ "; p_k k; ". "; p_exp e]
+and p_lambda x e = cat ["λ "; p_x x; ". "; p_exp e]
+and p_arm x e = cat [p_x x; " -> "; p_exp e]
 
 (* Pretty-printing for lambda terms *)
 
