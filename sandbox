@@ -2,9 +2,8 @@ sequent calculus language thing
 
 Types
   τ ∷= 0 | 1
-     | σ + τ
-     | σ × τ
-     | σ → τ
+     | τ + ..
+     | τ × ..
      | ¬ τ
      | (σ, .. ⊢ τ, ..)
 
@@ -26,16 +25,12 @@ Terms
      | [k]★
 
      Products
-     | pair k (κ h. e₁) (κ j. e₂)
-     | let (y, z) = x in e
+     | [k](κ h. e, ..)
+     | let (y, ..) = x in e
 
      Sums
-     | let [h, j] = k in e
-     | case x (λ y. e₁) (λ z. e₂)
-
-     Functions
-     | [k](λ x. κ j. e)
-     | let y = x (κ k. e₁) in e₂
+     | let [j, ..] = k in e
+     | case x of y -> e | .. end
 
      Negation
      | let x -> k in e
@@ -43,7 +38,7 @@ Terms
 
      Sequents
      | [k](λ x .. . κ j .. . e)
-     | case x (κ k. e₁) .. of (λ y. e₂) .. end
+     | case x (κ k. e₁) .. of y -> e₂ | .. end
 
 Typing judgment Γ ⊢ e ⊣ Δ
 
@@ -73,33 +68,23 @@ Typing judgment Γ ⊢ e ⊣ Δ
 
   Products
 
-       Γ ⊢ e₁ ⊣ h : σ, Δ    Γ ⊢ e₂ ⊣ j : τ, Δ
-    —————————————————————————————————————————————
-    Γ ⊢ pair k (κ h. e₁) (κ j. e₂) ⊣ k : σ × τ, Δ
+          Γ ⊢ e ⊣ j : τ, Δ    ..
+    ———————————————————————————————————
+    Γ ⊢ [k](κ j. e, ..) ⊣ k : τ × .., Δ
 
-           Γ, y : σ, z : τ ⊢ e ⊣ Δ
-    ——————————————————————————————————————
-    Γ, x : σ × τ ⊢ let (y, z) = x in e ⊣ Δ
+              Γ, y : τ, .. ⊢ e ⊣ Δ
+    ————————————————————————————————————————
+    Γ, x : τ × .. ⊢ let (y, ..) = x in e ⊣ Δ
 
   Sums
 
-           Γ ⊢ e ⊣ h : σ, j : τ, Δ
-    ——————————————————————————————————————
-    Γ ⊢ let [h, j] = k in e ⊣ k : σ + τ, Δ
+              Γ ⊢ e ⊣ j : τ, .., Δ
+    ————————————————————————————————————————
+    Γ ⊢ let [j, ..] = k in e ⊣ k : τ + .., Δ
 
-     Γ, y : σ ⊢ e₁ ⊣ Δ    Γ, z : τ ⊢ e₂ ⊣ Δ
+             Γ, y : σ ⊢ e ⊣ Δ    ..
     —————————————————————————————————————————
-    Γ, x : σ + τ ⊢ case x (λ y. e₁) (λ z. e₂)
-
-  Functions
-
-          Γ, x : σ ⊢ e ⊣ j : τ, Δ
-    ———————————————————————————————————
-    Γ ⊢ [k](λ x. κ j. e) ⊣ k : σ → τ, Δ
-
-       Γ ⊢ e₁ ⊣ k : σ, Δ    Γ, y : τ ⊢ e₂ ⊣ Δ
-    ————————————————————————————————————————————
-    Γ, x : σ → τ ⊢ let y = x (κ k. e₁) in e₂ ⊣ Δ
+    Γ, x : τ + .. ⊢ case x of y -> e | .. end
 
   Negation
 
@@ -119,7 +104,7 @@ Typing judgment Γ ⊢ e ⊣ Δ
 
              Γ ⊢ e₁ ⊣ k : σ, Δ    ..    Γ, y : τ ⊢ e₂ ⊣ Δ    ..
     ————————————————————————————————————————————————————————————————————
-    Γ, x : (σ, .. ⊢ τ, ..) ⊢ case x (κ k. e₁) .. of (λ y. e₂) .. end ⊣ Δ
+    Γ, x : (σ, .. ⊢ τ, ..) ⊢ case x (κ k. e₁) .. of y -> e₂ | .. end ⊣ Δ
 
 Conversion to LC
 
@@ -130,8 +115,8 @@ Conversion to LC
 
             [[ 0 ]] R = 0
             [[ 1 ]] R = 1
-        [[ σ + τ ]] R = [[ σ ]] R + [[ τ ]] R
-        [[ σ × τ ]] R = [[ σ ]] R × [[ τ ]] R
+       [[ τ + .. ]] R = [[ τ ]] R + ..
+       [[ τ × .. ]] R = [[ τ ]] R × ..
         [[ σ → τ ]] R = [[ σ ]] R → ([[ τ ]] R → R) → R
           [[ ¬ τ ]] R = [[ τ ]] R → R
 [[ σ, .. ⊢ τ, .. ]] R = [[ σ ]] R → .. → ([[ τ ]] R → R) → .. → R
@@ -139,16 +124,14 @@ Conversion to LC
                                    [[ [k]x ]] = k x
               [[ cut _ (κ k. e₁) (λ x. e₂) ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
                                    [[ [k]★ ]] = k ★
-             [[ pair k (κ h. e₁) (κ j. e₂) ]] = (λ h. [[e₁]]) (λ v. (λ j. [[e₂]]) (λ w. k (v, w)))
-                    [[ let (y, z) = x in e ]] = let (y, z) = x in [[e]]
-                    [[ let [h, j] = k in e ]] = (λ h j. [[e]]) (λ v. k (ι₁ v)) (λ w. k (ι₂ w))
-             [[ case x (λ y. e₁) (λ z. e₂) ]] = case x of ι₁ y -> [[e₁]] | ι₂ z -> [[e₂]] end
-                       [[ [k](λ x. κ j. e) ]] = k (λ x j. [[e]])
-              [[ let y = x (κ k. e₁) in e₂ ]] = (λ k. e₁) (λ v. (λ y. e₂) (x v))
+                        [[ [k](κ j. e, ..) ]] = (λ j. [[e]]) (λ v. .. (λ .. . k (v, ..)))
+                   [[ let (y, ..) = x in e ]] = let (y, ..) = x in [[e]]
+                   [[ let [j, ..] = k in e ]] = (λ j .. . [[e]]) (λ v. k (ι₁ v)) ..
+              [[ case x of y -> e | .. end ]] = case x of ι₁ y -> [[e]] | .. end
                         [[ let x -> k in e ]] = (λ k. [[e]]) x
                         [[ let x <- k in e ]] = k (λ x. [[e]])
                [[ [k](λ x .. . κ j .. . e) ]] = k (λ x .. j .. . [[e]])
-[[ case x (κ k. e₁) .. of (λ y. e₂) .. end ]] = x (λ k. [[e₁]]) .. (λ y. [[e₂]]) ..
+[[ case x (κ k. e₁) .. of y -> e₂ | .. end ]] = x (λ k. [[e₁]]) .. (λ y. [[e₂]]) ..
 
 Negation
   What do (let x -> k in e) and (let x <- k in e) do? Rough guesses:
@@ -232,13 +215,13 @@ Cocurrying?
     let x : σ + τ = κ k.
       let [h, j] = k in e₁
     in
-    case x (λ y. e₂) (λ z. e₃)
+    case x of y -> e₂ | z -> e₃ end
     -->
     let h : σ = λ y. e₂ in
     let j : τ = λ z. e₃ in
     e₁
   Products (k ∉ FV(e₁) ∪ FV(e₂), x ∉ FV(e₃))
-    let x : σ × τ = κ k. pair k (κ h. e₁) (κ j. e₂) in
+    let x : σ × τ = κ k. [k](κ h. e₁, κ j. e₂) in
     let (y, z) = x in
     e₃
     -->
@@ -255,7 +238,7 @@ Cocurrying?
     e₃
   Sequents (k ∉ FV(e₁), f ∉ FV(e₂) ∪ .. ∪ FV(e₃) U ..)
     let f : (σ, .. ⊢ τ, ..) = κ k. [k](λ x ... κ j ... e₁) in
-    case f (κ h. e₂) .. of (λ y. e₃) .. end
+    case f (κ h. e₂) .. of y -> e₃ | .. end
     -->
     let x : σ = κ h. e₂ in
               .
@@ -316,10 +299,10 @@ Cut elimination
 
 η-laws
   Sums
-    case x (λ y. let [h, _] = k in [h]y) (λ z. let [_, j] = k in [j]z)
+    case x of ι₁ y -> let [h, _] = k in [h]y | ι₂ z -> let [_, j] = k in [j]z end
     --> [k]x
   Products
-    let (y, z) = x in pair k (κ h. [h]y) (κ j. [j]z)
+    let (y, z) = x in [k](κ h. [h]y, κ j. [j]z)
     --> [k]x
   Functions
     [k](λ x. κ h. let y = f (κ j. [j]x) in h[y])
