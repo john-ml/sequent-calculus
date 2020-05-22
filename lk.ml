@@ -140,9 +140,9 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
   (* Γ ⊢ e₁ ⊣ k : τ, Δ    Γ, x : τ ⊢ e₂ ⊣ Δ
      —————————————————————————————————————— Cut
          Γ ⊢ let x = κ k. e₁ in e₂ ⊣ Δ           *)
-  | Let (x, t, k, e₁, e₂) ->
-    check vars e₁ (add k t covars) *>
-    check (add x t vars) e₂ covars
+  | Let (x, t, k, e1, e2) ->
+    check vars e1 (add k t covars) *>
+    check (add x t vars) e2 covars
   (*
     ——————————————————    ——————————————
     x : 0 ⊢ absurd x ⊣    ⊢ [k]★ ⊣ k : 1 *)
@@ -151,10 +151,10 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
   (*    Γ ⊢ e₁ ⊣ h : σ, Δ    Γ ⊢ e₂ ⊣ j : τ, Δ
      —————————————————————————————————————————————
      Γ ⊢ pair k (κ h. e₁) (κ j. e₂) ⊣ k : σ × τ, Δ *)
-  | Pair (k, h, e₁, j, e₂) ->
+  | Pair (k, h, e1, j, e2) ->
     let* (s, t) = as_prod (find_covar k covars) in
-    check vars e₁ (add h s covars) *>
-    check vars e₂ (add j t covars)
+    check vars e1 (add h s covars) *>
+    check vars e2 (add j t covars)
   (*        Γ, y : σ, z : τ ⊢ e ⊣ Δ
      ——————————————————————————————————————
      Γ, x : σ × τ ⊢ let (y, z) = x in e ⊣ Δ *)
@@ -170,10 +170,10 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
   (*  Γ, y : σ ⊢ e₁ ⊣ Δ    Γ, z : τ ⊢ e₂ ⊣ Δ
      —————————————————————————————————————————
      Γ, x : σ + τ ⊢ case x (λ y. e₁) (λ z. e₂) *)
-  | Case (x, y, e₁, z, e₂) ->
+  | Case (x, y, e1, z, e2) ->
     let* (s, t) = as_sum (find_var x vars) in
-    check (add y s vars) e₁ covars *>
-    check (add z t vars) e₂ covars
+    check (add y s vars) e1 covars *>
+    check (add z t vars) e2 covars
   (*       Γ, x : σ ⊢ e ⊣ j : τ, Δ
      ———————————————————————————————————
      Γ ⊢ [k](λ x. κ j. e) ⊣ k : σ → τ, Δ *)
@@ -183,10 +183,10 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
   (*    Γ ⊢ e₁ ⊣ k : σ, Δ    Γ, y : τ ⊢ e₂ ⊣ Δ
      ————————————————————————————————————————————
      Γ, x : σ → τ ⊢ let y = x (κ k. e₁) in e₂ ⊣ Δ *)
-  | LetApp (y, x, k, e₁, e₂) ->
+  | LetApp (y, x, k, e1, e2) ->
     let* (s, t) = as_arr (find_var x vars) in
-    check vars e₁ (add k s covars) *>
-    check (add y t vars) e₂ covars
+    check vars e1 (add k s covars) *>
+    check (add y t vars) e2 covars
   (*         Γ ⊢ e ⊣ k : τ, Δ
      ————————————————————————————————
      Γ, x : ¬ τ ⊢ let x -> k in e ⊣ Δ *)
@@ -203,57 +203,59 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
 (* Conversion to lambda calculus *)
 
 type lc
-  = LVar of int
-  | Lam of (int -> lc)
+  = LVar of string
+  | Lam of string * lc
   | App of lc * lc
   | LTrivial
   | LAbsurd of lc
   | In1 of lc
   | In2 of lc
-  | LCase of lc * (int -> lc) * (int -> lc)
+  | LCase of lc * string * lc * string * lc
   | LPair of lc * lc
-  | LUnpair of lc * (int -> int -> lc)
+  | LUnpair of string * string * lc * lc
 
-let ( $ ) e₁ e₂ = App (e₁, e₂)
-let lam f = Lam (fun x -> f (LVar x))
-let xlam f = Lam (fun x -> f (Var x))
-let klam f = Lam (fun x -> f (Covar x))
+let s_x (Var x) = "x" ^ string_of_int x
+let s_k (Covar k) = "k" ^ string_of_int k
+let c_x x = LVar (s_x x)
+let c_k k = LVar (s_k k)
 
-let c_x (Var x) = LVar x
-let c_k (Covar x) = LVar x
+let ( $ ) e1 e2 = App (e1, e2)
+let vlam ve = let v = "v" ^ string_of_int (fresh ()) in Lam (v, ve (LVar v))
+let xlam (Var x) e = Lam ("x" ^ string_of_int x, e)
+let klam (Covar k) e = Lam ("k" ^ string_of_int k, e)
 
 let rec c_exp : exp -> lc = function
   (* [[ [k]x ]] = k x *)
   | Axiom (k, x) -> c_k k $ c_x x
   (* [[ let x = κ k. e₁ in e₂ ]] = (λ k. [[e₁]]) (λ x. [[e₂]]) *)
-  | Let (x, _, k, e₁, e₂) -> klam (fun k -> c_exp e₁) $ xlam (fun x -> c_exp e₂)
+  | Let (x, _, k, e1, e2) -> klam k (c_exp e1) $ xlam x (c_exp e2)
   (* [[ [k]★ ]] = k ★ *)
   | Trivial k -> c_k k $ LTrivial
   (* [[ absurd x ]] = case x of end *)
   | Absurd x -> LAbsurd (c_x x)
   (* [[ pair k (κ h. e₁) (κ j. e₂) ]] = (λ h. [[e₁]]) (λ v. (λ j. [[e₂]]) (λ w. k (v, w))) *)
-  | Pair (k, h, e₁, j, e₂) ->
-    klam (fun h -> c_exp e₁) $ lam (fun v -> 
-    klam (fun j -> c_exp e₂) $ lam (fun w -> 
+  | Pair (k, h, e1, j, e2) ->
+    klam h (c_exp e1) $ vlam (fun v -> 
+    klam j (c_exp e2) $ vlam (fun w -> 
     LPair (v, w)))
   (* [[ let (y, z) = x in e ]] = let (y, z) = x in [[e]] *)
-  | Unpair (y, z, x, e) -> LUnpair (c_x x, fun y z -> c_exp e)
+  | Unpair (y, z, x, e) -> LUnpair (s_x y, s_x z, c_x x, c_exp e)
   (* [[ let [h, j] = k in e ]] = (λ h j. [[e]]) (λ v. k (ι₁ v)) (λ w. k (ι₂ w)) *)
   | Uncase (h, j, k, e) ->
-    (klam (fun h -> klam (fun j -> c_exp e))
-      $ lam (fun v -> c_k k $ In1 v))
-      $ lam (fun w -> c_k k $ In2 w)
+    (klam h (klam j (c_exp e))
+      $ vlam (fun v -> c_k k $ In1 v))
+      $ vlam (fun w -> c_k k $ In2 w)
   (* [[ case x (λ y. e₁) (λ z. e₂) ]] = case x of ι₁ y -> [[e₁]] | ι₂ z -> [[e₂]] end *)
-  | Case (x, y, e₁, z, e₂) -> LCase (c_x x, (fun y -> c_exp e₁), fun z -> c_exp e₂)
+  | Case (x, y, e1, z, e2) -> LCase (c_x x, s_x y, c_exp e1, s_x z, c_exp e2)
   (* [[ [k](λ x. κ j. e) ]] = k (λ x j. [[e]]) *)
-  | Fun (k, x, j, e) -> c_k k $ xlam (fun x -> klam (fun j -> c_exp e))
+  | Fun (k, x, j, e) -> c_k k $ xlam x (klam j (c_exp e))
   (* [[ let y = x (κ k. e₁) in e₂ ]] = (λ k. e₁) (λ v. (λ y. e₂) (x v)) *)
-  | LetApp (y, x, k, e₁, e₂) ->
-    klam (fun k -> c_exp e₁) $ lam (fun v -> xlam (fun y -> c_exp e₂) $ (c_x x $ v))
+  | LetApp (y, x, k, e1, e2) ->
+    klam k (c_exp e1) $ vlam (fun v -> xlam y (c_exp e2) $ (c_x x $ v))
   (* [[ let x -> k in e ]] = (λ k. [[e]]) x *)
-  | ToCo (x, k, e) -> klam (fun k -> c_exp e) $ c_x x
+  | ToCo (x, k, e) -> klam k (c_exp e) $ c_x x
   (* [[ let x <- k in e ]] = k (λ x. [[e]]) *)
-  | OfCo (x, k, e) -> c_k k $ xlam (fun x -> c_exp e)
+  | OfCo (x, k, e) -> c_k k $ xlam x (c_exp e)
 
 (* Pretty-printing for sequent calculus terms *)
 
@@ -274,50 +276,42 @@ let rec p_ty : ty -> string = function
 
 let rec p_exp : exp -> string = function
   | Axiom (k, x) -> cat ["["; p_k k; "]"; p_x x]
-  | Let (x, t, k, e₁, e₂) ->
-    cat ["let "; p_x x; " : "; p_ty t; " = "; p_kappa' k e₁; " in "; p_exp e₂]
+  | Let (x, t, k, e1, e2) ->
+    cat ["let "; p_x x; " : "; p_ty t; " = "; p_kappa k e1; " in "; p_exp e2]
   | Absurd x -> cat ["absurd "; p_x x]
   | Trivial k -> cat ["["; p_k k; "]★"]
-  | Pair (k, h, e₁, j, e₂) -> cat ["pair "; p_k k; " "; p_kappa' h e₁; " "; p_kappa' j e₂]
+  | Pair (k, h, e1, j, e2) -> cat ["pair "; p_k k; " "; p_kappa h e1; " "; p_kappa j e2]
   | Unpair (y, z, x, e) -> cat ["let ("; p_x y; ", "; p_x z; ") = "; p_x x; " in "; p_exp e]
   | Uncase (h, j, k, e) -> cat ["let ["; p_k h; ", "; p_k j; "] = "; p_k k; " in "; p_exp e]
-  | Case (x, y, e₁, z, e₂) -> cat ["case "; p_x x; " "; p_lambda' y e₁; " "; p_lambda' z e₂]
+  | Case (x, y, e1, z, e2) -> cat ["case "; p_x x; " "; p_lambda y e1; " "; p_lambda z e2]
   | Fun (k, x, j, e) -> cat ["["; p_k k; "](λ "; p_x x; ". κ "; p_k j; ". "; p_exp e]
-  | LetApp (y, x, k, e₁, e₂) -> cat ["let "; p_x y; " = "; p_x x; " "; p_kappa' k e₁; " in "; p_exp e₂]
+  | LetApp (y, x, k, e1, e2) -> cat ["let "; p_x y; " = "; p_x x; " "; p_kappa k e1; " in "; p_exp e2]
   | ToCo (x, k, e) -> cat ["let "; p_x x; " -> "; p_k k; " in "; p_exp e]
   | OfCo (x, k, e) -> cat ["let "; p_x x; " <- "; p_k k; " in "; p_exp e]
-and p_kappa ke = let k = Covar (fresh ()) in cat ["(κ "; p_k k; ". "; p_exp (ke k)]
-and p_kappa' k e = cat ["(κ "; p_k k; ". "; p_exp e]
-and p_lambda xe = let x = Var (fresh ()) in cat ["(λ "; p_x x; ". "; p_exp (xe x)]
-and p_lambda' x e = cat ["(λ "; p_x x; ". "; p_exp e]
+and p_kappa k e = cat ["(κ "; p_k k; ". "; p_exp e]
+and p_lambda x e = cat ["(λ "; p_x x; ". "; p_exp e]
 
 (* Pretty-printing for lambda terms *)
 
 let rec p_lx x = "x" ^ string_of_int x
-
 let rec p_lc : lc -> string = function
-  | LVar x -> p_lx x
-  | Lam xe -> let x = fresh () in cat ["(λ "; p_lx x; ". "; p_lc (xe x); ")"]
-  | App (e₁, e₂) -> cat ["("; p_lc e₁; " "; p_lc e₂; ")"]
+  | LVar x -> x
+  | Lam (x, e) -> cat ["(λ "; x; ". "; p_lc e; ")"]
+  | App (e1, e2) -> cat ["("; p_lc e1; " "; p_lc e2; ")"]
   | LTrivial -> "★"
   | LAbsurd e -> cat ["case "; p_lc e; " of end"]
   | In1 e -> cat ["(ι₁ "; p_lc e; ")"]
   | In2 e -> cat ["(ι₂ "; p_lc e; ")"]
-  | LCase (e, xe₁, ye₂) ->
-    let x = fresh () in
-    let y = fresh () in
+  | LCase (e, x, e1, y, e2) ->
     cat ["case "; p_lc e;
-      " of ι₁ "; p_lx x; " -> "; p_lc (xe₁ x);
-      " | ι₂ "; p_lx y; " -> "; p_lc (ye₂ y); " end"]
-  | LPair (e₁, e₂) -> cat ["("; p_lc e₁; ", "; p_lc e₂; ")"]
-  | LUnpair (e, xye) ->
-    let x = fresh () in
-    let y = fresh () in
-    cat ["let ("; p_lx x; ", "; p_lx y; ") = "; p_lc e; " in "; p_lc (xye x y)]
+      " of ι₁ "; x; " -> "; p_lc e1;
+      " | ι₂ "; y; " -> "; p_lc e2; " end"]
+  | LPair (e1, e2) -> cat ["("; p_lc e1; ", "; p_lc e2; ")"]
+  | LUnpair (x, y, e1, e2) -> cat ["let ("; x; ", "; y; ") = "; p_lc e1; " in "; p_lc e2]
 
 (* Tests *)
 
-let () = print_endline (p_lc (lam (fun x -> x $ x)))
+let () = print_endline (p_lc (vlam (fun x -> x $ x)))
 
 let (dne_l, dne_lx, dne_lk) =
   let x = Var (fresh ()) in
