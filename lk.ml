@@ -20,6 +20,21 @@ type ty
   | Prod of ty list
   | Neg of ty
   | Vdash of ty list * ty list
+  | TVar of int
+  | Mu of int * ty
+
+(* τ[σ/x] *)
+let rec ty_subst t s x =
+  let go t = ty_subst t s x in
+  match t with
+  | Void -> Void
+  | Unit -> Unit
+  | Sum ts -> Sum (List.map go ts)
+  | Prod ts -> Prod (List.map go ts)
+  | Neg t -> Neg (go t)
+  | Vdash (ss, ts) -> List.(Vdash (map go ss, map go ts))
+  | TVar x' as t -> if x = x' then s else t
+  | Mu (x', t') as t -> if x = x' then t else Mu (x', go t')
 
 (* Typing contexts: Γ, Δ ∷= · | Γ, x : τ *)
 
@@ -294,6 +309,8 @@ let rec p_ty : ty -> string = function
   | Prod ts -> cat ["("; cat_map " × " p_ty ts; ")"]
   | Neg t -> cat ["¬"; p_ty t]
   | Vdash (ss, ts) -> cat ["("; commas_by p_ty ss; " ⊢ "; commas_by p_ty ts; ")"]
+  | TVar a -> cat ["α"; string_of_int a]
+  | Mu (a, t) -> cat ["(μ α"; string_of_int a; ". "; p_ty t; ")"]
 
 let paren s = cat ["("; s; ")"]
 
