@@ -256,7 +256,7 @@ let klam (Covar k) e = Lam ("k" ^ string_of_int k, e)
 let rec c_exp : exp -> lc = function
   (* [[ [k]x ]] = k x *)
   | Axiom (k, x) -> c_k k $ c_x x
-  (* [[ let x = κ k. e₁ in e₂ ]] = (λ k. [[e₁]]) (λ x. [[e₂]]) *)
+  (* [[ cut (κ k. e₁) (λ x. e₂) ]] = (λ k. [[e₁]]) (λ x. [[e₂]]) *)
   | Cut (_, k, e1, x, e2) -> klam k (c_exp e1) $ xlam x (c_exp e2)
   (* [[ [k]★ ]] = k ★ *)
   | Trivial k -> c_k k $ LTrivial

@@ -19,7 +19,7 @@ Terms
      | [k]x
      | cut (κ k. e₁) (λ x. e₂)
        =: let x = κ k. e₁ in e₂
-       =: cont k = λ x. e₁ in e₂
+       =: let k = λ x. e₁ in e₂
 
      Unit and zero
      | absurd x
@@ -168,7 +168,7 @@ Negation
                             —————————————————————————————————————
       Γ ⊢ _ ⊣ j : ¬ τ, Δ    x : τ, y : ¬ τ ⊢ let y -> k in [k]x ⊣
       ———————————————————————————————————————————————————————————
-      Γ, x : τ ⊢ cont j : ¬ τ = λ y. let y -> k in [k]x in _ ⊣ Δ
+       Γ, x : τ ⊢ let j : ¬ τ = λ y. let y -> k in [k]x in _ ⊣ Δ
     and
              ————————————————————
              j : τ ⊢ [k]y ⊣ k : τ
@@ -177,7 +177,7 @@ Negation
       ———————————————————————————————————————————————————————————
       Γ ⊢ let x : ¬ τ = (κ j. let y <- j in [k]y) in _ ⊣ k : τ, Δ
   What control operators do these derived rules correspond to?
-    [[ cont j : ¬ τ = λ y. let y -> k in [k]x in _ ]]
+    [[ let j : ¬ τ = λ y. let y -> k in [k]x in _ ]]
       = (λ j. [[_]]) (λ y. [[ let y -> k in [k]x ]]
       = (λ j. [[_]]) (λ y. (λ k. k x) y)
       = (λ j. [[_]]) (λ y. y x)
@@ -227,15 +227,15 @@ Cocurrying?
   So p → .. → q → 1 ← r ← .. ← s
    ≡ p × .. × q → r + .. + s
 
-β-laws
+β laws
   Sums (k ∉ FV(e₁), x ∉ FV(e₂) ∪ FV(e₃))
     let x : σ + τ = κ k.
       let [h, j] = k in e₁
     in
     case x (λ y. e₂) (λ z. e₃)
     -->
-    cont h : σ = λ y. e₂ in
-    cont j : τ = λ z. e₃ in
+    let h : σ = λ y. e₂ in
+    let j : τ = λ z. e₃ in
     e₁
   Products (k ∉ FV(e₁) ∪ FV(e₂), x ∉ FV(e₃))
     let x : σ × τ = κ k. pair k (κ h. e₁) (κ j. e₂) in
@@ -260,7 +260,18 @@ Cocurrying?
     let x : σ = κ h. e₂ in
               .
               .
-    cont j : τ = λ y. e₃ in
+    let j : τ = λ y. e₃ in
                .
                .
     e₁
+
+η laws
+  Sums
+    case x (λ y. let [h, _] = k in [h]y) (λ z. let [_, j] = k in [j]z)
+    --> [k]x
+  Products
+    let (y, z) = x in pair k (κ h. [h]y) (κ j. [j]z)
+    --> [k]x
+  Functions
+    [k](λ x. κ h. let y = f (κ j. [j]x) in h[y])
+    --> [k]f
