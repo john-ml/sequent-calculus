@@ -17,9 +17,8 @@ Terms
 
      Variables
      | [k]x
-     | cut τ (κ k. e₁) (λ x. e₂)
-       =: let x : τ = κ k. e₁ in e₂
-       =: let k : τ = λ x. e₂ in e₁
+     | let x : τ = κ k. e₁ and .. in e₂
+       =: let k : τ = λ x. e₂ in e₁ (when |x| = 1)
 
      Unit and zero
      | absurd x
@@ -62,9 +61,9 @@ Typing judgment Γ ⊢ e ⊣ Δ
 
   Cut
 
-    Γ ⊢ e₁ ⊣ k : τ, Δ    Γ, x : τ ⊢ e₂ ⊣ Δ
-    ——————————————————————————————————————
-      Γ ⊢ cut τ (κ k. e₁) (λ x. e₂) ⊣ Δ
+    Γ, x : ¬ ¬ τ, .. ⊢ e₁ ⊣ k : τ    ..    Γ, x : τ, .. ⊢ e₂ ⊣ Δ
+    ————————————————————————————————————————————————————————————
+             Γ ⊢ let x : τ = κ k. e₁ and .. in e₂ ⊣ Δ
 
   Unit and zero
 
@@ -138,7 +137,8 @@ Conversion to LC
        [[ μ α. τ ]] R = μ α. [[ τ ]] R
 
                                    [[ [k]x ]] = k x
-              [[ cut _ (κ k. e₁) (λ x. e₂) ]] = (λ k. [[e₁]]) (λ x. [[e₂]])
+           [[ let x = κ k. e₁ and .. in e₂ ]] = rec x k = [[e₁]] and .. in
+                                                x (λ x. .. (λ .. . [[e₂]]))
                                    [[ [k]★ ]] = k ★
                         [[ [k](κ j. e, ..) ]] = (λ j. [[e]]) (λ v. .. (λ .. . k (v, ..)))
                    [[ let (y, ..) = x in e ]] = let (y, ..) = x in [[e]]
@@ -147,7 +147,7 @@ Conversion to LC
                         [[ let x -> k in e ]] = (λ k. [[e]]) x
                         [[ let x <- k in e ]] = k (λ x. [[e]])
                [[ [k](λ x .. . κ j .. . e) ]] = k (λ x .. j .. . [[e]])
-[[ case x (κ k. e₁) .. of y -> e₂ | .. end ]] = x (λ k. [[e₁]]) .. (λ y. [[e₂]]) ..
+[[ case x (κ k. e₁) .. of y -> e₂ | .. end ]] = (λ k. [[e₁]]) (λ v. .. (λ .. . x v .. (λ y. [[e₂]]) ..))
                        [[ [k](κ j. roll e) ]] = (λ j. [[e]]) (λ v. k (roll v))
                   [[ let y = unroll x in e ]] = (λ y. e) (unroll x)
 
@@ -266,7 +266,7 @@ Cocurrying?
     let (y, z) = x in [k](κ h. [h]y, κ j. [j]z)
     --> [k]x
 
-Misc. cut elimination
+Misc. cut elim facts
   Variables
     let x : τ = κ k. [k]y in e
     --> e[y/x]

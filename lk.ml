@@ -412,3 +412,14 @@ let () = print_endline (p_lc (c_exp dne_r))
 let res = check (extend dne_lx (Neg (Neg Unit)) empty) dne_l (extend dne_lk Unit empty)
 
 let res = check (extend dne_lx (Neg (Neg Unit)) empty) (Axiom (dne_lk, dne_lx)) (extend dne_lk Unit empty)
+
+let rec tri k = k (fun n j -> if n = 0 then j 0 else tri (fun tri -> tri (n - 1) (fun m -> j (n + m))))
+
+let rec evn k = k (fun n j -> if n = 0 then j true else odd (fun odd -> odd (n - 1) j))
+and odd k = k (fun n j -> if n = 0 then j false else evn (fun evn -> evn (n - 1) j))
+
+let evn_odds : bool list * bool list =
+  evn (fun evn -> odd (fun odd ->
+  evn 0 (fun evn0 -> evn 1 (fun evn1 -> evn 2 (fun evn2 ->
+  odd 0 (fun odd0 -> odd 1 (fun odd1 -> odd 2 (fun odd2 ->
+  ([evn0; evn1; evn2], [odd0; odd1; odd2])))))))))
