@@ -308,12 +308,14 @@ let rec c_exp : exp -> lc = function
   | OfCo (x, k, e) -> c_k k $ xlam x (c_exp e)
   (* [[ [k](λ x .. . κ j .. . e) ]] = k (λ x .. j .. . [[e]]) *)
   | LK (k, xs, js, e) -> let open List in c_k k $ fold_right xlam xs (fold_right klam js (c_exp e))
-  (* [[ case x (κ k. e₁) .. of (λ y. e₂) .. end ]] = x (λ k. [[e₁]]) .. (λ y. [[e₂]]) .. *)
+  (* [[ case x (κ k. e₁) .. of y -> e₂ | .. end ]] = (λ k. [[e₁]]) (λ v. .. (λ .. . x v .. (λ y. [[e₂]]) ..)) *)
   | LKApp (x, kes, yes) ->
     let open List in
-    fold_left (fun e (y, e2) -> e $ xlam y (c_exp e2))
-      (fold_left (fun e (k, e1) -> e $ klam k (c_exp e1)) (c_x x) kes)
-      yes
+    let vs = map (fun _ -> s_x (Var (fresh ()))) kes in
+    fold_right (fun (v, (k, e1)) e -> klam k (c_exp e1) $ Lam (v, e)) (combine vs kes)
+      (fold_left (fun e (y, e2) -> e $ xlam y (c_exp e2))
+        (fold_left (fun e v -> (e $ LVar v)) (c_x x) vs)
+        yes)
   (* [[ [k](κ j. roll e) ]] = (λ j. [[e]]) (λ v. k (roll v)) *)
   | Roll (k, j, e) -> klam j (c_exp e) $ vlam (fun v -> c_k k $ LRoll v)
   (* [[ let y = unroll x in e ]] = (λ y. [[e]]) (unroll x) *)
