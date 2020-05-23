@@ -55,9 +55,9 @@ let extends (vs : 'a list) (ts : ty list) (vts : 'a ctx) : 'a ctx =
 type exp
   (* Variables
      | [k]x
-     | let x : τ = κ k. e₁ in e₂ *)
+     | let x : τ = κ k. e₁ and .. in e₂ *)
   = Axiom of covar * var
-  | Cut of ty * covar * exp * var * exp
+  | LetRec of (var * ty * covar * exp) list * exp
   (* Unit and zero
      | absurd x
      | [k]★ *)
@@ -165,12 +165,14 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
     let* t = find_var x vars in
     let* t' = find_covar k covars in
     if t = t' then Ok () else Err (`Mismatch (t, t'))
-  (* Γ ⊢ e₁ ⊣ k : τ, Δ    Γ, x : τ ⊢ e₂ ⊣ Δ
-     ——————————————————————————————————————
-        Γ ⊢ cut (κ k. e₁) (λ x. e₂) ⊣ Δ      *)
-  | Cut (t, k, e1, x, e2) ->
-    check vars e1 (extend k t covars) *>
-    check (extend x t vars) e2 covars
+  (* Γ, x : ¬ ¬ τ, .. ⊢ e₁ ⊣ k : τ    ..    Γ, x : τ, .. ⊢ e₂ ⊣ Δ
+     ————————————————————————————————————————————————————————————
+              Γ ⊢ let x : τ = κ k. e₁ and .. in e₂ ⊣ Δ *)
+  | LetRec (xtke1s, e2) ->
+    let open List in
+    let rec_vars = fold_right (fun (x, t, _, _) -> extend x (Neg (Neg t))) xtke1s vars in
+    mapM_ (fun (x, t, k, e1) -> check rec_vars e1 (extend k t covars)) xtke1s *>
+    check (fold_right (fun (x, t, _, _) -> extend x t) xtke1s vars) e2 covars
   (*
     ——————————————————    ——————————————
     x : 0 ⊢ absurd x ⊣    ⊢ [k]★ ⊣ k : 1 *)
@@ -255,6 +257,7 @@ let rec check (vars : var ctx) (e : exp) (covars : covar ctx) =
 type lc
   = LVar of string
   | Lam of string * lc
+  | LLetRec of (string * lc) list * lc
   | App of lc * lc
   | LTrivial
   | LAbsurd of lc
@@ -272,14 +275,19 @@ let c_k k = LVar (s_k k)
 
 let ( $ ) e1 e2 = App (e1, e2)
 let vlam ve = let v = "v" ^ string_of_int (fresh ()) in Lam (v, ve (LVar v))
+let vlam' v e = let v = "v" ^ string_of_int v in Lam (v, e)
 let xlam (Var x) e = Lam ("x" ^ string_of_int x, e)
 let klam (Covar k) e = Lam ("k" ^ string_of_int k, e)
 
 let rec c_exp : exp -> lc = function
   (* [[ [k]x ]] = k x *)
   | Axiom (k, x) -> c_k k $ c_x x
-  (* [[ cut (κ k. e₁) (λ x. e₂) ]] = (λ k. [[e₁]]) (λ x. [[e₂]]) *)
-  | Cut (_, k, e1, x, e2) -> klam k (c_exp e1) $ xlam x (c_exp e2)
+  (* [[ let x = κ k. e₁ and .. in e₂ ]] = rec x = λ k. [[e₁]] and .. in x (λ x. .. (λ .. . [[e₂]])) *)
+  | LetRec (xtke1s, e2) ->
+    let open List in
+    LLetRec (
+      map (fun (x, _, k, e1) -> (s_x x, klam k (c_exp e1))) xtke1s,
+      fold_right (fun (x, _, k, e1) e -> c_x x $ xlam x e) xtke1s (c_exp e2))
   (* [[ [k]★ ]] = k ★ *)
   | Trivial k -> c_k k $ LTrivial
   (* [[ absurd x ]] = case x of end *)
@@ -287,10 +295,10 @@ let rec c_exp : exp -> lc = function
   (* [[ [k](κ j. e, ..) ]] = (λ j. [[e]]) (λ v. .. (λ .. . k (v, ..))) *)
   | Tuple (k, jes) ->
     let open List in
-    let vs = map (fun _ -> fresh ()) jes in
-    fold_left
-      (fun res (j, e) -> res $ Lam (s_k j, c_exp e))
-      (c_k k $ LTuple (map (fun v -> LVar (s_x (Var v))) vs)) jes
+    let vjes = map (fun (j, e) -> (fresh (), j, e)) jes in
+    fold_right
+      (fun (v, j, e) res -> klam j (c_exp e) $ vlam' v res)
+       vjes (c_k k $ LTuple (map (fun (v, _, _) -> LVar (s_x (Var v))) vjes))
   (* [[ let (y, ..) = x in e ]] = let (y, ..) = x in [[e]] *)
   | Untuple (ys, x, e) -> LUntuple (List.map s_x ys, c_x x, c_exp e)
   (* [[ let [j, ..] = k in e ]] = (λ j .. . [[e]]) (λ v. k (ι₁ v)) .. *)
@@ -347,8 +355,9 @@ let paren s = cat ["("; s; ")"]
 
 let rec p_exp : exp -> string = function
   | Axiom (k, x) -> cat ["["; p_k k; "]"; p_x x]
-  | Cut (t, k, e1, x, e2) ->
-    cat ["cut "; p_ty t; " "; paren (p_kappa k e1); " "; paren (p_lambda x e2)]
+  | LetRec (xtke1s, e2) ->
+    let p_def (x, t, k, e1) = cat [p_x x; " : "; p_ty t; " = "; p_kappa k e1] in
+    cat ["let "; cat_map " and " p_def xtke1s; " in "; p_exp e2]
   | Absurd x -> cat ["absurd "; p_x x]
   | Trivial k -> cat ["["; p_k k; "]★"]
   | Tuple (k, jes) -> cat ["["; p_k k; "]("; commas_by (uncurry p_kappa) jes; ")"]
@@ -370,10 +379,11 @@ and p_arm x e = cat [p_x x; " -> "; p_exp e]
 
 (* Pretty-printing for lambda terms *)
 
-let rec p_lx x = "x" ^ string_of_int x
 let rec p_lc : lc -> string = function
   | LVar x -> x
   | Lam (x, e) -> cat ["(λ "; x; ". "; p_lc e; ")"]
+  | LLetRec (xes, e) ->
+    cat ["let rec "; cat_map " and " (fun (x, e) -> cat [x; " = "; p_lc e]) xes; " in "; p_lc e]
   | App (e1, e2) -> cat ["("; p_lc e1; " "; p_lc e2; ")"]
   | LTrivial -> "★"
   | LAbsurd e -> cat ["case "; p_lc e; " of end"]

@@ -137,8 +137,7 @@ Conversion to LC
        [[ μ α. τ ]] R = μ α. [[ τ ]] R
 
                                    [[ [k]x ]] = k x
-           [[ let x = κ k. e₁ and .. in e₂ ]] = rec x k = [[e₁]] and .. in
-                                                x (λ x. .. (λ .. . [[e₂]]))
+           [[ let x = κ k. e₁ and .. in e₂ ]] = rec x = λ k. [[e₁]] and .. in x (λ x. .. (λ .. . [[e₂]]))
                                    [[ [k]★ ]] = k ★
                         [[ [k](κ j. e, ..) ]] = (λ j. [[e]]) (λ v. .. (λ .. . k (v, ..)))
                    [[ let (y, ..) = x in e ]] = let (y, ..) = x in [[e]]
